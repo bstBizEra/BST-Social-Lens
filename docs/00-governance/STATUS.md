@@ -1,15 +1,20 @@
 # BST Social Lens — repository status snapshot
 
-**This file is the auditable engineering truth for the repository.** It is updated by PR
-only, records verifiable facts (SHAs, versions, gate states, evidence), and points to the
-artefacts that prove them. Richer working context lives in the Claude Project ("BST Social
-Lens" → `status/`), which is a working aid, not a source of truth.
+**Point-in-time controlled snapshot, not live state.** Git history tells you what is
+current; this file tells you what was *verified* at a specific snapshot base. It is updated
+by PR only, records verifiable facts (SHAs, versions, gate states, evidence) as observed at
+the snapshot base, and points to the artefacts that prove them. Later merges do not
+invalidate a snapshot — they make a newer snapshot necessary when the change is material.
+Richer working context lives in the Claude Project ("BST Social Lens" → `status/`), which
+is a working aid, not evidence.
 
 | Field | Value |
 |---|---|
-| Snapshot date | 2026-09-16 |
-| `main` | `51e2636` — "Merge Social Lens v0.5.0 into main" |
-| Latest release | v0.5.0 (extension 0.4.0 · parsers 0.3.0 · lens-api 0.3.0 · Console) |
+| Snapshot observed at | 2026-09-17T01:03:08+07:00 (2026-09-16T18:03:08Z) |
+| Snapshot base SHA | `51e2636` — `main` as observed when this snapshot was prepared ("Merge Social Lens v0.5.0 into main") |
+| Snapshot PR | #10 |
+| Status scope | Repository state as observed at the snapshot base; PRs listed are those open at that moment |
+| Latest release | v0.5.0 — GitHub Release exists (extension 0.4.0 · parsers 0.3.0 · lens-api 0.3.0 · Console) |
 | Next release | v0.6.0 — extension 0.6.0 (Layer B assisted navigation), gated on PR #7 acceptance |
 | Branch protection | Ruleset `main-protection` (active): PR required, conversation resolution, required checks `extension · check / test / build` + `lens-api · pytest` (strict), no force-push, no deletion, 0 approvals (no independent reviewer yet) |
 | CI | `.github/workflows/parser-health.yml` — lands with PR #9; until then `main` has no workflow |
@@ -27,7 +32,7 @@ Lens" → `status/`), which is a working aid, not a source of truth.
 | 8 Engineering verification | active | `main`: 28 vitest + 8 pytest. With PRs #6–#9: 42 vitest + 8 lens-api + 16 lens-worker pytest |
 | 9–14 | not started | — |
 
-## Open pull requests
+## Pull requests observed at snapshot
 
 | PR | Branch | Head | Disposition | Acceptance contract |
 |---|---|---|---|---|
@@ -36,16 +41,16 @@ Lens" → `status/`), which is a working aid, not a source of truth.
 | #7 | `feat/assisted-navigation` | `8161af7` | code approved; operational acceptance pending | Lao-group A/B: assist off vs on, ≥ 2× comment records, both counts reported on the PR |
 | #8 | `spike/layer-c-worker` | `ac7bc55` | **hold** | Evidence gate GO from a ≥ 50-target frontier run with LensDB baseline (`layer-c-report.json` attached to the PR); until then no `/ingest` or `/seen` writes are possible (machine-enforced) |
 
-## Active evidence gates
+## Active evidence gates (at snapshot)
 
 1. **Layer B (PR #7)** — human-run A/B on a real Lao property group with the secondary account. Owner: OP-Vily. Blocked by: nothing (extension builds from the branch).
 2. **Layer C (PR #8)** — `python -m worker.run --limit 50` against a live lens-api; decision GO / NO-GO / INCONCLUSIVE computed by `services/lens-worker/worker/report.py` (sample ≥ 50 from frontier, block ≤ 20 %, usable ≥ 60 %, incremental value vs baseline). Blocked by: lens-api deployment (below).
 
 ## Blockers
 
-| Blocker | Impact | Reference |
-|---|---|---|
-| Podman networking on bizera-wsl (slirp4netns `/dev/net/tun`; netavark iptables on WSL2 kernel 6.6.114) | lens-api + LensDB not deployed → no ingest sync, no Console on live data, Layer C experiment cannot run | `docs/10-release-production/local-deploy-attempt-2026-09-16.md` (local note, untracked) · `docs/10-release-production/deploy-runbook.md` |
+| Blocker | Impact | Evidence class | Reference |
+|---|---|---|---|
+| Podman networking on bizera-wsl (slirp4netns `/dev/net/tun`; netavark iptables on WSL2 kernel 6.6.114) | lens-api + LensDB not deployed → no ingest sync, no Console on live data, Layer C experiment cannot run | **Operator-reported, sanitised** — committed transcription of the operator's local note; raw logs remain external to the repository | `docs/10-release-production/evidence/2026-09-16-podman-networking.md` · `docs/10-release-production/deploy-runbook.md` |
 
 ## Authoritative references
 
@@ -56,6 +61,10 @@ Lens" → `status/`), which is a working aid, not a source of truth.
 
 ## How to update
 
-Change this file in the same PR that changes the fact it records (a release, a gate state,
-a merged evidence result). Never edit `main` SHA or evidence lines from memory — copy them
-from `git`, the PR, or the attached report.
+Prepare a new snapshot when a material fact changes (a release, a gate state, a merged
+evidence result, a PR landing): set *Snapshot observed at* to an offset-aware timestamp,
+*Snapshot base SHA* to the `main` SHA observed at preparation (`git rev-parse --short
+origin/main`), and *Snapshot PR* to the PR carrying the update. Never write a SHA or an
+evidence line from memory — copy it from `git`, the PR, or the attached report. The
+snapshot base is by construction one commit behind the merge that lands it; that is the
+intended semantics, not an error.
