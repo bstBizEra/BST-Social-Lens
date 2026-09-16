@@ -13,6 +13,9 @@ stats.html
 services/lens-api/.venv/
 services/lens-api/**/__pycache__/
 services/lens-api/.env
+services/lens-worker/.venv/
+services/lens-worker/**/__pycache__/
+services/lens-worker/layer-c-report*.json
 .pytest_cache/
 
 tests/fixtures/_live/

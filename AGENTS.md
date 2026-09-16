@@ -28,6 +28,7 @@ src/
     export.ts                CSV / NDJSON serialisers
 tests/                       vitest parser tests + JSON fixtures (+ live.test.ts)
 services/lens-api/           server tier — FastAPI ingest + Postgres (LensDB), Podman compose
+services/lens-worker/        Layer C spike — logged-out public-permalink fetcher (curl_cffi/nodriver), ADR-0004
 docs/00..12-*                SDLC gate artefacts (see §5), incl. ADR-0001 topology
 public/icon                  extension icons
 wxt.config.ts                manifest + build config (chrome default, `-b edge`)
@@ -77,6 +78,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 - TikTok comment payloads (`/api/comment/list/`) are captured raw but not yet normalised.
 - TikTok parser still validated only on a synthetic fixture — needs a live smoke test.
 - lens-api `/mcp` adapter for MCP Hub proxying is deferred to Phase 4; auth is a static bearer token until then.
+- `services/lens-worker` is a spike: it stays out of compose until a GO decision from its evidence gate (≥ 50 frontier targets, block rate ≤ 20 %, usable rate ≥ 60 %, measurable incremental value vs LensDB). Every target passes the acquisition boundary (`validate_target`) before fetch; the 50-target sample threshold is a constant, not a flag; `/ingest` and `/seen` are written only on GO. Test: `cd services/lens-worker && pip install -r requirements-dev.txt && pytest -q`.
 - Side panel requires Chrome/Edge ≥ 116 (`chrome.sidePanel`).
 
 ## 7. Lessons log
