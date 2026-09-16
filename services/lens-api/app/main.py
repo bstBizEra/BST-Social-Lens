@@ -8,6 +8,7 @@ Endpoints
   POST /ingest           receive a batch of SocialRecords (bearer auth)
   GET  /records          paginated read for the Console (bearer auth)
   GET  /stats            per-platform counts (bearer auth)
+  POST /mcp              Model Context Protocol (Streamable HTTP, read-only tools; bearer auth)
 """
 from __future__ import annotations
 
@@ -16,10 +17,12 @@ import pathlib
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
 from .db import Database
+from .mcp import McpDispatcher
 from .models import HealthResult, IngestBody, IngestResult, SeenBody, record_to_row
 
 DSN = os.environ.get("LENS_DB_DSN", "postgresql://lens:lens@lens-db:5432/lens")
@@ -39,7 +42,7 @@ async def lifespan(app: FastAPI):
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.3.0", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.4.0", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -143,6 +146,25 @@ async def stats() -> dict:
         "by_type": {r["record_type"]: r["n"] for r in by_type},
         "last_capture": last.isoformat() if last else None,
     }
+
+
+@app.post("/mcp", dependencies=[Depends(require_token)])
+async def mcp_endpoint(request: Request) -> Response:
+    """MCP Streamable HTTP transport (POST only). Read-only tools over LensDB."""
+    try:
+        body = await request.json()
+    except Exception:
+        return JSONResponse({"jsonrpc": "2.0", "id": None, "error": {"code": -32700, "message": "parse error"}}, status_code=200)
+    status, payload = await McpDispatcher(db).handle(body)
+    if payload is None:
+        return Response(status_code=status)
+    return JSONResponse(payload, status_code=status)
+
+
+@app.get("/mcp")
+async def mcp_get() -> Response:
+    # No server-initiated stream; clients must POST.
+    return Response(status_code=405, headers={"Allow": "POST"})
 
 
 # Serve the Console at / (same-origin with the API → the browser fetch needs no CORS).

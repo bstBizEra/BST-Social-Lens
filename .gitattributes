@@ -1,0 +1,6 @@
+# Shell scripts run inside WSL from a Windows checkout — they must stay LF
+# (core.autocrlf=true turns `set -o pipefail` into `pipefail\r`).
+*.sh   text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.py   text eol=lf

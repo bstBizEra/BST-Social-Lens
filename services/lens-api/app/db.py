@@ -164,3 +164,85 @@ class Database:
             else:
                 rows = await con.fetch("SELECT * FROM seen_links ORDER BY updated_at LIMIT $1", limit)
         return [dict(r) for r in rows]
+
+    # ---------- read helpers used by the MCP adapter (read-only) ----------
+
+    async def search_records(
+        self, *, query: str | None, platform: str | None, record_type: str | None, container_id: str | None,
+        keyword: str | None, matched_only: bool, since: Any | None, limit: int,
+    ) -> list[dict[str, Any]]:
+        clauses, args = [], []
+        if query:
+            args.append(f"%{query}%"); clauses.append(f"text ILIKE ${len(args)}")
+        if platform:
+            args.append(platform); clauses.append(f"platform = ${len(args)}")
+        if record_type:
+            args.append(record_type); clauses.append(f"record_type = ${len(args)}")
+        if container_id:
+            args.append(container_id); clauses.append(f"container_id = ${len(args)}")
+        if keyword:
+            args.append(keyword); clauses.append(f"${len(args)} = ANY(matched_keywords)")
+        if matched_only:
+            clauses.append("match_score > 0")
+        if since:
+            args.append(since); clauses.append(f"COALESCE(created_at, captured_at) > ${len(args)}")
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        args.append(limit)
+        sql = (f"SELECT key, platform, post_id, record_type, parent_post_id, permalink, container_id, container_name, "
+               f"container_type, author_name, author_hash, text, lang, created_at, captured_at, reactions_total, "
+               f"comments_count, shares_count, views_count, hashtags, matched_keywords, match_score "
+               f"FROM records {where} ORDER BY COALESCE(created_at, captured_at) DESC NULLS LAST LIMIT ${len(args)}")
+        async with self.pool.acquire() as con:
+            rows = await con.fetch(sql, *args)
+        return [dict(r) for r in rows]
+
+    async def get_record_with_comments(self, key: str) -> dict[str, Any] | None:
+        async with self.pool.acquire() as con:
+            rec = await con.fetchrow("SELECT * FROM records WHERE key = $1", key)
+            if not rec:
+                return None
+            post_id = rec["post_id"]
+            comments = await con.fetch(
+                "SELECT key, author_name, author_hash, text, created_at, reactions_total, matched_keywords "
+                "FROM records WHERE record_type = 'comment' AND parent_post_id = $1 ORDER BY created_at NULLS LAST LIMIT 200",
+                post_id,
+            )
+        out = dict(rec)
+        out["comments"] = [dict(c) for c in comments]
+        return out
+
+    async def stats(self) -> dict[str, Any]:
+        async with self.pool.acquire() as con:
+            by_platform = await con.fetch("SELECT platform, count(*) AS n FROM records GROUP BY platform")
+            by_type = await con.fetch("SELECT record_type, count(*) AS n FROM records GROUP BY record_type")
+            total = await con.fetchval("SELECT count(*) FROM records")
+            matched = await con.fetchval("SELECT count(*) FROM records WHERE match_score > 0")
+            seen = await con.fetchval("SELECT count(*) FROM seen_links")
+            last = await con.fetchval("SELECT max(captured_at) FROM records")
+        return {
+            "total": total, "matched": matched, "seen_links": seen,
+            "by_platform": {r["platform"]: r["n"] for r in by_platform},
+            "by_type": {r["record_type"]: r["n"] for r in by_type},
+            "last_capture": last.isoformat() if last else None,
+        }
+
+    async def top_containers(self, *, platform: str | None, limit: int) -> list[dict[str, Any]]:
+        args: list[Any] = []
+        where = "WHERE match_score > 0"
+        if platform:
+            args.append(platform); where += f" AND platform = ${len(args)}"
+        args.append(limit)
+        async with self.pool.acquire() as con:
+            rows = await con.fetch(
+                f"SELECT platform, container_id, max(container_name) AS container_name, count(*) AS matched, "
+                f"max(COALESCE(created_at, captured_at)) AS latest FROM records {where} "
+                f"GROUP BY platform, container_id ORDER BY matched DESC LIMIT ${len(args)}", *args)
+        return [dict(r) for r in rows]
+
+    async def seen_list(self, *, status: str | None, limit: int) -> list[dict[str, Any]]:
+        async with self.pool.acquire() as con:
+            if status:
+                rows = await con.fetch("SELECT * FROM seen_links WHERE last_status = $1 ORDER BY updated_at DESC LIMIT $2", status, limit)
+            else:
+                rows = await con.fetch("SELECT * FROM seen_links ORDER BY updated_at DESC LIMIT $1", limit)
+        return [dict(r) for r in rows]
