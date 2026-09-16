@@ -1,0 +1,20 @@
+[Unit]
+Description=BST Social Lens - lens-api (container-free, runbook 2a)
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=vily
+WorkingDirectory=/mnt/c/laragon/www/BST-Social-Lens/services/lens-api
+# Secrets stay in the gitignored .env (POSTGRES_*, LENS_API_TOKEN). The DSN in .env targets
+# the compose hostname, so it is rebuilt here against the local cluster.
+EnvironmentFile=/mnt/c/laragon/www/BST-Social-Lens/services/lens-api/.env
+Environment=LENS_CONSOLE_DIR=/mnt/c/laragon/www/BST-Social-Lens/console
+ExecStartPre=/bin/bash -c 'test -x /home/vily/lens-api-local/venv/bin/uvicorn -a -x /home/vily/lens-api-local/run-service.sh'
+ExecStart=/home/vily/lens-api-local/run-service.sh
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

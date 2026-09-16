@@ -88,8 +88,23 @@ bash $S auth     # 401 without token; /stats and /seen with the .env token
 bash $S stop
 ```
 Verified 2026-09-17 on bizera-wsl (PostgreSQL 14 already present, Python 3.10): `/health`
-`db:true`, Console 200, reachable from Windows at `http://localhost:7710`. The nohup process
-does not survive a WSL shutdown — rerun `start`.
+`db:true`, Console 200, reachable from Windows at `http://localhost:7710`.
+
+Line endings: `.gitattributes` pins `*.sh` to LF so the script runs from a Windows checkout.
+If an older checkout still has CRLF, run it via a normalised copy:
+`sed 's/\r$//' $S > ~/lens-api-local/lens-api-local.sh && bash ~/lens-api-local/lens-api-local.sh start`.
+
+Autostart (systemd — bizera-wsl runs `systemd=true`, alongside the other `bst-*` units):
+
+```bash
+bash /mnt/c/laragon/www/BST-Social-Lens/services/lens-api/install-service.sh
+# installs /etc/systemd/system/bst-lens-api.service (User=vily, EnvironmentFile=.env,
+# ExecStart=~/lens-api-local/run-service.sh which rebuilds LENS_DB_DSN against 127.0.0.1),
+# enables it, restarts it, prints active/enabled + /health
+systemctl status bst-lens-api      # journalctl -u bst-lens-api -f
+```
+Installed and verified 2026-09-17: `active` / `enabled`, `/health` `db:true` after restart.
+Prefer the unit over `lens-api-local.sh start` (the nohup path is for one-off runs).
 
 Manual equivalent:
 
