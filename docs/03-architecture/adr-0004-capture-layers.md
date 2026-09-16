@@ -26,11 +26,18 @@ Two constraints shape the decision:
 1. **Account safety** (AGENTS.md §3.5): no hidden background browsing, jittered pacing,
    per-run caps, runs only while the panel is open. Every headless approach violates
    this if it uses a logged-in account.
-2. **Legal posture.** *Meta Platforms v. Bright Data* (N.D. Cal., 2024) held that Meta's
-   Terms bind only logged-in account holders; logged-out collection of public pages was
-   not a breach of contract, while automated collection *while logged in* remains
-   prohibited by the Terms. Lao EDPL 2017 exposure is unchanged: post content and
-   engagement only, author ids hashed, no member-profile aggregation.
+2. **Legal posture (risk context, not authorisation).** In *Meta Platforms, Inc. v.
+   Bright Data Ltd.* (N.D. Cal. 2024, summary judgment) the court held, on the record
+   and the contractual terms before it, that Bright Data's logged-off collection of
+   publicly available Facebook/Instagram data did not breach the applicable Meta Terms,
+   because those Terms bind account holders using the service. That is a case-specific
+   contract ruling: it does not make scraping lawful in general, and it leaves
+   copyright, privacy, computer-access statutes, platform enforcement, jurisdiction
+   (Lao EDPL 2017 applies to us regardless) and the facts of any future dispute as
+   separate questions. Automated collection *while logged in* remains prohibited by
+   Meta's Terms. The ADR uses the case only to rank the layers by contractual exposure;
+   the data-minimisation guardrails (post content and engagement only, author ids
+   hashed, no member-profile aggregation) apply to every layer.
 
 ## Decision
 
@@ -81,8 +88,9 @@ Layer C  Headless worker           bizera-wsl service, LOGGED OUT, public permal
 Positive
 - Coverage grows (comment threads, engagement refresh) without adding a logged-in
   automation surface; the account-safety rules in AGENTS.md remain true as written.
-- Legal posture is explicit: Layer C sits on the side of *Bright Data* the court found
-  lawful; Layers A/B are ordinary account use by the operator.
+- Contractual exposure is ranked explicitly: Layers A/B are ordinary account use by the
+  operator under the Terms; Layer C avoids the logged-in Terms entirely by design. This
+  lowers, but does not remove, legal risk — see Context §2.
 - A single Python worker runtime keeps operational load on `bizera-wsl` small.
 
 Negative / accepted
@@ -110,4 +118,4 @@ Negative / accepted
 - ADR-0001 topology, ADR-0002 keyword/comments/seen frontier, ADR-0003 autonomous mode
 - Open-source scraper landscape 2026: Scrapfly "10 Best Open-Source Web Scrapers";
   anti-detect benchmark (7 tools, 31 targets, 651 verdicts), ianlpaterson.com
-- *Meta Platforms, Inc. v. Bright Data Ltd.*, N.D. Cal. (summary judgment, 2024)
+- *Meta Platforms, Inc. v. Bright Data Ltd.*, No. 3:23-cv-00077 (N.D. Cal.), order on summary judgment, 2024 — cited as risk context only; not legal advice
