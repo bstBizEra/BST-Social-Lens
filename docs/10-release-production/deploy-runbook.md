@@ -88,8 +88,16 @@ bash $S auth     # 401 without token; /stats and /seen with the .env token
 bash $S stop
 ```
 Verified 2026-09-17 on bizera-wsl (PostgreSQL 14 already present, Python 3.10): `/health`
-`db:true`, Console 200, reachable from Windows at `http://localhost:7710`. The nohup process
-does not survive a WSL shutdown — rerun `start`.
+`db:true`, Console 200, reachable from Windows at `http://localhost:7710`.
+
+Line endings: `.gitattributes` pins `*.sh` to LF so the script runs from a Windows checkout.
+If an older checkout still has CRLF, run it via a normalised copy:
+`sed 's/\r$//' $S > ~/lens-api-local/lens-api-local.sh && bash ~/lens-api-local/lens-api-local.sh start`.
+
+Autostart: the nohup process does not survive a WSL shutdown. A Windows Scheduled Task
+`BST-Social-Lens lens-api` (trigger: at logon) runs
+`wsl.exe -d bizera-wsl -- bash ~/lens-api-local/lens-api-local.sh start`; `start` is
+idempotent (exits if the pid is alive). Remove with `schtasks /Delete /TN "BST-Social-Lens lens-api" /F`.
 
 Manual equivalent:
 
