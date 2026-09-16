@@ -10,36 +10,37 @@ is a working aid, not evidence.
 
 | Field | Value |
 |---|---|
-| Snapshot observed at | 2026-09-17T01:03:08+07:00 (2026-09-16T18:03:08Z) |
-| Snapshot base SHA | `51e2636` — `main` as observed when this snapshot was prepared ("Merge Social Lens v0.5.0 into main") |
+| Snapshot observed at | 2026-09-17T01:37:57+07:00 (2026-09-16T18:37:57Z) |
+| Snapshot base SHA | `3190553` — `main` as observed when this snapshot was prepared ("Merge pull request #6 from bstBizEra/docs/adr-0004") |
 | Snapshot PR | #10 |
 | Status scope | Repository state as observed at the snapshot base; PRs listed are those open at that moment |
-| Latest release | v0.5.0 — GitHub Release exists (extension 0.4.0 · parsers 0.3.0 · lens-api 0.3.0 · Console) |
+| Latest release | v0.5.0 — GitHub Release exists (extension 0.4.0 · parsers 0.3.0 · lens-api 0.3.0 · Console). Since the release, `main` also carries the parser-health CI (#9, `5dbe5bf`) and ADR-0004 (#6, `3190553`) |
 | Next release | v0.6.0 — extension 0.6.0 (Layer B assisted navigation), gated on PR #7 acceptance |
 | Branch protection | Ruleset `main-protection` (active): PR required, conversation resolution, required checks `extension · check / test / build` + `lens-api · pytest` (strict), no force-push, no deletion, 0 approvals (no independent reviewer yet) |
-| CI | `.github/workflows/parser-health.yml` — lands with PR #9; until then `main` has no workflow |
+| CI | `.github/workflows/parser-health.yml` on `main` (merged via #9). Required checks now report on every PR; `lens-worker · pytest` is skipped (not green) while the worker is absent on the base |
 
 ## SDLC gate status (AGENTS.md §5)
 
 | Gate | State | Evidence |
 |---|---|---|
 | 1–2 PRD / decomposition | pending | — |
-| 3 Architecture | done | ADR-0001 … ADR-0003 on `main`; ADR-0004 in PR #6 |
+| 3 Architecture | done | ADR-0001 … ADR-0004 on `main` (`docs/03-architecture/README.md`) |
 | 4 Detailed design | done | `src/lib/types.ts` schema v1; `services/lens-api/app/schema.sql` |
-| 5 Security / compliance | pending | Lao EDPL 2017 mapping + ToS exposure register not yet authored; ADR-0004 §Context 2 records the legal posture as risk context |
+| 5 Security / compliance | pending | Lao EDPL 2017 mapping + ToS exposure register not yet authored; ADR-0004 §Context 2 (on `main`) records the legal posture as risk context |
 | 6 Implementation planning | pending | — |
 | 7 Development | active | extension 0.4.0 on `main`; 0.6.0 in PR #7; lens-worker spike in PR #8 |
-| 8 Engineering verification | active | `main`: 28 vitest + 8 pytest. With PRs #6–#9: 42 vitest + 8 lens-api + 16 lens-worker pytest |
+| 8 Engineering verification | active | `main` at base: 29 vitest (incl. parser-health replay) + 8 lens-api pytest, CI-enforced. With open PRs #7 + #8: 42 vitest + 8 lens-api + 16 lens-worker pytest |
 | 9–14 | not started | — |
 
 ## Pull requests observed at snapshot
 
+Merged into the base since the previous snapshot: #9 `ci/parser-health` (merge `5dbe5bf`), #6 `docs/adr-0004` (merge `3190553`).
+
 | PR | Branch | Head | Disposition | Acceptance contract |
 |---|---|---|---|---|
-| #9 | `ci/parser-health` | `fa5282e` | approve — merge first | CI green on PR (extension, lens-api; lens-worker skipped-not-present) |
-| #6 | `docs/adr-0004` | `45198df` | approve after #9 + checks | docs-only |
-| #7 | `feat/assisted-navigation` | `8161af7` | code approved; operational acceptance pending | Lao-group A/B: assist off vs on, ≥ 2× comment records, both counts reported on the PR |
-| #8 | `spike/layer-c-worker` | `ac7bc55` | **hold** | Evidence gate GO from a ≥ 50-target frontier run with LensDB baseline (`layer-c-report.json` attached to the PR); until then no `/ingest` or `/seen` writes are possible (machine-enforced) |
+| #10 | `docs/status-snapshot` | this PR | approve after governance revision (done) | snapshot semantics + offset timestamp + committed Podman evidence |
+| #7 | `feat/assisted-navigation` | `8161af7` | code approved (review rounds 1–2); operational acceptance pending | Lao-group A/B: assist off vs on, ≥ 2× comment records, both counts reported on the PR |
+| #8 | `spike/layer-c-worker` | `ac7bc55` | code approved; **evidence hold** | Evidence gate GO from a ≥ 50-target frontier run with LensDB baseline (`layer-c-report.json` attached to the PR); until then no `/ingest` or `/seen` writes are possible (machine-enforced) |
 
 ## Active evidence gates (at snapshot)
 
