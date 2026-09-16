@@ -12,7 +12,7 @@ export default defineConfig({
     short_name: 'Social Lens',
     description:
       'Captures social signals (Facebook groups/posts, TikTok) from your own browser session into a local store and the BST ingest API.',
-    version: '0.4.0',
+    version: '0.6.0',
     author: 'BizEra / BST',
     permissions: ['storage', 'unlimitedStorage', 'downloads', 'tabs', 'sidePanel', 'alarms'],
     host_permissions: [

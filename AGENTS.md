@@ -19,12 +19,14 @@ src/
   entrypoints/
     interceptor.content.ts   MAIN-world fetch/XHR hook (no extension APIs here)
     bridge.content.ts        isolated-world relay → chrome.runtime + on-page badge
+    autoscroll.content.ts    autonomous scroll + assisted comment expansion (Layer B)
     background.ts            service worker: routing, Dexie persistence, export, ingest sync
     sidepanel/               Svelte 5 side panel (stats, export, ingest settings, privacy)
   lib/
     types.ts                 SocialRecord v1 schema, message contracts, Settings
     db/                      Dexie store (records, raw, runs, settings)
     modules/                 one PlatformModule per platform (facebook.ts, tiktok.ts)
+    autorun.ts / assist.ts   pure pacing/caps logic for auto-scroll and assisted expansion
     export.ts                CSV / NDJSON serialisers
 tests/                       vitest parser tests + JSON fixtures (+ live.test.ts)
 services/lens-api/           server tier — FastAPI ingest + Postgres (LensDB), Podman compose
@@ -39,7 +41,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 2. **Interceptor safety.** `interceptor.content.ts` must never throw into the page. Wrap everything; on failure return the original response untouched.
 3. **Platform modules never throw.** `parse()` returns `[]` on unexpected shapes; the raw payload is retained for re-parse. Bump `version` on every output change.
 4. **Privacy by default.** `hashAuthorIds` is on; raw payloads purge after `rawRetentionDays`. Do not add member-profile aggregation (names + contacts + location) — post-level content and engagement only.
-5. **Account safety.** Any future auto-scroll must use jittered 2–5 s pacing, per-run caps, and run only while the side panel is open. No background autonomous browsing in v0.x.
+5. **Account safety.** Auto-scroll uses jittered 2–5 s pacing, per-run caps, and runs only while the side panel is open. Assisted navigation (Layer B, ADR-0004) may click in-page comment/reply/"See more" expanders from the allow-list in `src/lib/assist.ts` — it must never navigate, open links, or act on Join/Like/Share/Reply controls. No background autonomous browsing in v0.x; any headless capture is logged-out only (ADR-0004).
 6. **Store-listing language.** Never use "scraper"/"crawler" in `manifest.name`, `description`, README headline, or store copy.
 7. **Tests before merge.** `npm run check && npm test && npm run build && npm run build:edge` must pass.
 

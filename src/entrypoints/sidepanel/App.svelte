@@ -6,7 +6,7 @@
   let settings = $state<Settings | undefined>(undefined);
   let message = $state('');
   let busy = $state(false);
-  let auto = $state<{ running: boolean; scrolls: number; reason: string | null }>({ running: false, scrolls: 0, reason: null });
+  let auto = $state<{ running: boolean; scrolls: number; clicks: number; reason: string | null }>({ running: false, scrolls: 0, clicks: 0, reason: null });
 
   const autoReason: Record<string, string> = {
     maxScrolls: 'reached scroll cap',
@@ -14,10 +14,11 @@
     endOfFeed: 'reached end of feed',
     stopped: 'stopped',
     'no-capture-tab': 'open a Facebook/TikTok tab first',
+    navigated: 'stopped — page changed',
   };
 
   async function refreshAuto() {
-    auto = await send<{ running: boolean; scrolls: number; reason: string | null }>({ type: 'autoState' });
+    auto = await send<{ running: boolean; scrolls: number; clicks: number; reason: string | null }>({ type: 'autoState' });
   }
   const startAuto = () => run('Start', () => send<{ ok: boolean; running: boolean }>({ type: 'autoStart' }), (r) => (r.running ? 'Auto-scroll started' : 'Open a Facebook or TikTok tab first'));
   const stopAuto = () => run('Stop', () => send<{ ok: boolean }>({ type: 'autoStop' }), () => 'Auto-scroll stopped');
@@ -126,7 +127,7 @@
   <h2>Autonomous mode</h2>
   <div class="muted">
     {#if auto.running}
-      <span class="dot"></span> Running — {auto.scrolls} scrolls. Keep this tab and panel open.
+      <span class="dot"></span> Running — {auto.scrolls} scrolls{#if settings?.assist.enabled} · {auto.clicks} threads expanded{/if}. Keep this tab and panel open.
     {:else}
       Manual by default (scroll to capture). Start auto-scroll on the current Facebook/TikTok tab.
       {#if auto.reason && autoReason[auto.reason]}· last run: {autoReason[auto.reason]}{/if}
@@ -149,6 +150,23 @@
       </label>
     </div>
     <div class="muted">Human-like pacing ({(settings.autoRun.minDelayMs / 1000).toFixed(1)}–{(settings.autoRun.maxDelayMs / 1000).toFixed(1)}s between scrolls). Auto-stops at a cap or end of feed. Use a secondary account.</div>
+    <label class="toggle">Expand comment threads (assisted)
+      <input type="checkbox" checked={settings.assist.enabled} onchange={(e) => settings && patch({ assist: { ...settings.assist, enabled: e.currentTarget.checked } })} />
+    </label>
+    {#if settings.assist.enabled}
+      <div class="row">
+        <label>Max expands / run
+          <input type="number" min="1" max="200" value={settings.assist.maxClicks} onchange={(e) => settings && patch({ assist: { ...settings.assist, maxClicks: Number(e.currentTarget.value) || 30 } })} />
+        </label>
+        <label>Per scroll
+          <input type="number" min="1" max="10" value={settings.assist.clicksPerRound} onchange={(e) => settings && patch({ assist: { ...settings.assist, clicksPerRound: Number(e.currentTarget.value) || 3 } })} />
+        </label>
+      </div>
+      <label class="toggle">Also expand "See more" text
+        <input type="checkbox" checked={settings.assist.expandText} onchange={(e) => settings && patch({ assist: { ...settings.assist, expandText: e.currentTarget.checked } })} />
+      </label>
+      <div class="muted">Clicks only in-page "View more comments" / "View replies" / "See more" controls (English, Lao, Thai) with {(settings.assist.minDelayMs / 1000).toFixed(1)}–{(settings.assist.maxDelayMs / 1000).toFixed(1)}s pacing. Never opens links or leaves the page; stops if the page changes.</div>
+    {/if}
   {/if}
 </section>
 

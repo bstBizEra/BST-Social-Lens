@@ -6,9 +6,11 @@
  */
 
 import { DEFAULT_AUTORUN, type AutoRunConfig } from './autorun';
+import { DEFAULT_ASSIST, type AssistConfig } from './assist';
 import { DEFAULT_KEYWORD_SET, type KeywordSet } from './keywords';
 export type { KeywordSet } from './keywords';
 export type { AutoRunConfig } from './autorun';
+export type { AssistConfig } from './assist';
 
 export type Platform = 'facebook' | 'tiktok';
 
@@ -134,6 +136,8 @@ export interface Settings {
   captureComments: boolean;
   /** Autonomous auto-scroll pacing + caps. */
   autoRun: AutoRunConfig;
+  /** Assisted navigation (Layer B): in-page comment/reply expansion during autonomous runs. */
+  assist: AssistConfig;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -149,6 +153,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keywordSet: DEFAULT_KEYWORD_SET,
   captureComments: true,
   autoRun: DEFAULT_AUTORUN,
+  assist: DEFAULT_ASSIST,
 };
 
 /* ---------- Messages: page (MAIN world) → bridge (isolated) → background ---------- */
@@ -195,6 +200,8 @@ export type RuntimeMessage =
 export interface AutoProgress {
   running: boolean;
   scrolls: number;
+  /** Assisted-navigation expander clicks this run (Layer B). */
+  clicks: number;
   reason: string | null;
 }
 
