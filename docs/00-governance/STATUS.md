@@ -1,0 +1,71 @@
+# BST Social Lens — repository status snapshot
+
+**Point-in-time controlled snapshot, not live state.** Git history tells you what is
+current; this file tells you what was *verified* at a specific snapshot base. It is updated
+by PR only, records verifiable facts (SHAs, versions, gate states, evidence) as observed at
+the snapshot base, and points to the artefacts that prove them. Later merges do not
+invalidate a snapshot — they make a newer snapshot necessary when the change is material.
+Richer working context lives in the Claude Project ("BST Social Lens" → `status/`), which
+is a working aid, not evidence.
+
+| Field | Value |
+|---|---|
+| Snapshot observed at | 2026-09-17T01:37:57+07:00 (2026-09-16T18:37:57Z) |
+| Snapshot base SHA | `3190553` — `main` as observed when this snapshot was prepared ("Merge pull request #6 from bstBizEra/docs/adr-0004") |
+| Snapshot PR | #10 |
+| Status scope | Repository state as observed at the snapshot base; PRs listed are those open at that moment |
+| Latest release | v0.5.0 — GitHub Release exists (extension 0.4.0 · parsers 0.3.0 · lens-api 0.3.0 · Console). Since the release, `main` also carries the parser-health CI (#9, `5dbe5bf`) and ADR-0004 (#6, `3190553`) |
+| Next release | v0.6.0 — extension 0.6.0 (Layer B assisted navigation), gated on PR #7 acceptance |
+| Branch protection | Ruleset `main-protection` (active): PR required, conversation resolution, required checks `extension · check / test / build` + `lens-api · pytest` (strict), no force-push, no deletion, 0 approvals (no independent reviewer yet) |
+| CI | `.github/workflows/parser-health.yml` on `main` (merged via #9). Required checks now report on every PR; `lens-worker · pytest` is skipped (not green) while the worker is absent on the base |
+
+## SDLC gate status (AGENTS.md §5)
+
+| Gate | State | Evidence |
+|---|---|---|
+| 1–2 PRD / decomposition | pending | — |
+| 3 Architecture | done | ADR-0001 … ADR-0004 on `main` (`docs/03-architecture/README.md`) |
+| 4 Detailed design | done | `src/lib/types.ts` schema v1; `services/lens-api/app/schema.sql` |
+| 5 Security / compliance | pending | Lao EDPL 2017 mapping + ToS exposure register not yet authored; ADR-0004 §Context 2 (on `main`) records the legal posture as risk context |
+| 6 Implementation planning | pending | — |
+| 7 Development | active | extension 0.4.0 on `main`; 0.6.0 in PR #7; lens-worker spike in PR #8 |
+| 8 Engineering verification | active | `main` at base: 29 vitest (incl. parser-health replay) + 8 lens-api pytest, CI-enforced. With open PRs #7 + #8: 42 vitest + 8 lens-api + 16 lens-worker pytest |
+| 9–14 | not started | — |
+
+## Pull requests observed at snapshot
+
+Merged into the base since the previous snapshot: #9 `ci/parser-health` (merge `5dbe5bf`), #6 `docs/adr-0004` (merge `3190553`).
+
+| PR | Branch | Head | Disposition | Acceptance contract |
+|---|---|---|---|---|
+| #10 | `docs/status-snapshot` | this PR | approve after governance revision (done) | snapshot semantics + offset timestamp + committed Podman evidence |
+| #7 | `feat/assisted-navigation` | `8161af7` | code approved (review rounds 1–2); operational acceptance pending | Lao-group A/B: assist off vs on, ≥ 2× comment records, both counts reported on the PR |
+| #8 | `spike/layer-c-worker` | `ac7bc55` | code approved; **evidence hold** | Evidence gate GO from a ≥ 50-target frontier run with LensDB baseline (`layer-c-report.json` attached to the PR); until then no `/ingest` or `/seen` writes are possible (machine-enforced) |
+
+## Active evidence gates (at snapshot)
+
+1. **Layer B (PR #7)** — human-run A/B on a real Lao property group with the secondary account. Owner: OP-Vily. Blocked by: nothing (extension builds from the branch).
+2. **Layer C (PR #8)** — `python -m worker.run --limit 50` against a live lens-api; decision GO / NO-GO / INCONCLUSIVE computed by `services/lens-worker/worker/report.py` (sample ≥ 50 from frontier, block ≤ 20 %, usable ≥ 60 %, incremental value vs baseline). Blocked by: lens-api deployment (below).
+
+## Blockers
+
+| Blocker | Impact | Evidence class | Reference |
+|---|---|---|---|
+| Podman networking on bizera-wsl (slirp4netns `/dev/net/tun`; netavark iptables on WSL2 kernel 6.6.114) | lens-api + LensDB not deployed → no ingest sync, no Console on live data, Layer C experiment cannot run | **Operator-reported, sanitised** — committed transcription of the operator's local note; raw logs remain external to the repository | `docs/10-release-production/evidence/2026-09-16-podman-networking.md` · `docs/10-release-production/deploy-runbook.md` |
+
+## Authoritative references
+
+- Architecture: `docs/03-architecture/README.md` (ADR index)
+- Tests: `tests/` (vitest), `services/lens-api/tests/`, `services/lens-worker/tests/`; fill-rate thresholds `tests/parser-health.thresholds.json` (PR #9)
+- Change history: `CHANGELOG.md`
+- Operating rules: `AGENTS.md`
+
+## How to update
+
+Prepare a new snapshot when a material fact changes (a release, a gate state, a merged
+evidence result, a PR landing): set *Snapshot observed at* to an offset-aware timestamp,
+*Snapshot base SHA* to the `main` SHA observed at preparation (`git rev-parse --short
+origin/main`), and *Snapshot PR* to the PR carrying the update. Never write a SHA or an
+evidence line from memory — copy it from `git`, the PR, or the attached report. The
+snapshot base is by construction one commit behind the merge that lands it; that is the
+intended semantics, not an error.
