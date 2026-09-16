@@ -67,6 +67,41 @@ curl -s http://localhost:7710/ | head -c 200  # Console HTML
 ```
 If `/health` shows `db:false`, `lens-db` isn't healthy yet — `podman compose logs lens-db` and retry in ~10s.
 
+### 2a. Container-free fallback (Podman networking unavailable)
+
+Use this when Podman cannot bring up the pod network (symptoms and evidence:
+`evidence/2026-09-16-podman-networking.md`). It runs the **same** lens-api code under
+`uvicorn` against a local PostgreSQL in WSL — enough for ingest sync, the Console, and the
+Layer C experiment. Bind stays `127.0.0.1:7710`; nothing else changes for the extension or
+the worker. Return to §2 once Podman is repaired; the schema is identical, so `pg_dump` /
+restore (§8) moves the data.
+
+```bash
+# 1. Local PostgreSQL (Ubuntu/Debian WSL; once)
+sudo apt-get install -y postgresql postgresql-contrib
+sudo service postgresql start                          # WSL has no systemd by default
+sudo -u postgres psql -c "CREATE USER lens WITH PASSWORD '<strong value>';"
+sudo -u postgres psql -c "CREATE DATABASE lens OWNER lens;"
+sudo -u postgres psql -d lens -c "CREATE EXTENSION IF NOT EXISTS pg_trgm;"
+
+# 2. lens-api in a venv
+cd "$HOME/mnt/BST-Social-Lens/services/lens-api"      # or /mnt/c/laragon/www/BST-Social-Lens/services/lens-api
+python3 -m venv .venv && . .venv/bin/activate
+pip install -r requirements.txt
+
+# 3. Runtime config — same variables as .env, host points at localhost
+export LENS_DB_DSN="postgresql://lens:<strong value>@127.0.0.1:5432/lens"
+export LENS_API_TOKEN="$(openssl rand -hex 24)"        # keep it: the extension + worker need it
+export LENS_CONSOLE_DIR="$(cd ../../console && pwd)"   # serves the Console at /
+uvicorn app.main:app --host 127.0.0.1 --port 7710      # schema is applied idempotently on startup
+```
+
+Verify exactly as above (`/health` → `db:true`). Run it under `tmux`/`screen` or a WSL
+`nohup` so it survives the shell; it is a fallback, not the production topology. Postgres
+listens on `127.0.0.1` only by default — leave it that way.
+
+Backup in this mode: `pg_dump -U lens -h 127.0.0.1 lens > lens_$(date +%F).sql`.
+
 ---
 
 ## 3. Load the extension
@@ -146,7 +181,8 @@ Raw payloads auto-purge after `rawRetentionDays` (default 30) in the extension s
 | Records stay 0 while scrolling | Store mode is `matched` and nothing matched — widen keywords or switch to `all`. Confirm the on-page badge shows payloads climbing. |
 | Badge shows payloads but 0 records | Keyword mismatch (expected) or a parser gap — side panel → **Raw payloads (NDJSON)** export and send it for a parser fix. |
 | Sync error in side panel | Wrong ingest URL/token, or lens-api down — `curl /health`. |
-| `/health` `db:false` | `lens-db` unhealthy — `podman compose logs lens-db`. |
+| `/health` `db:false` | `lens-db` unhealthy — `podman compose logs lens-db`. Container-free mode: `sudo service postgresql status`, and check `LENS_DB_DSN`. |
+| `podman compose up` fails at build/network (`/dev/net/tun`, netavark iptables, `modprobe tun`) | WSL kernel lacks `tun`/`ip_tables` — see `evidence/2026-09-16-podman-networking.md`; use §2a until the kernel/modules are repaired. |
 | Console empty at localhost:7710 | Token mismatch, or `LENS_CONSOLE_DIR` missing in the image — rebuild with the repo-root build context. |
 | Account checkpoint / lock | Stop autonomous runs; you're pacing too fast or on the primary account — use a secondary account and smaller caps. |
 | Edge card shows an old version | Reload the unpacked extension, or toggle it off/on; a browser restart refreshes the version chip. |
