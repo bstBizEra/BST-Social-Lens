@@ -65,7 +65,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 | 2 Requirement Decomposition | `docs/01-product-requirements` | pending |
 | 3 Architecture Design | `docs/03-architecture` | **done** — `research-brief-base-stack.md`, ADR-0001…0004 (see `docs/03-architecture/README.md`); ADR-0004 fixes the capture-layer policy: extension-first, headless **logged-out only** |
 | 4 Detailed Solution Design | `docs/03-architecture`, `docs/04-data-api-integration` | **done** — schema v1 in `src/lib/types.ts`; ingest contract + LensDB schema in `services/lens-api` |
-| 5 Security/Compliance Design | `docs/05-security-privacy` | pending — Lao EDPL 2017 mapping, ToS exposure register |
+| 5 Security/Compliance Design | `docs/05-security-privacy` | **draft for approval** — `edpl-tos-exposure-register.md` (EDPL mapping E1–E8, ToS register T1–T5, risks R1–R7); closes when OP-Vily approves and E1/E3/E4/E7 are tracked |
 | 6 Implementation Planning | `docs/07-engineering-devsecops` | pending |
 | 7 Development | `src/`, `services/` | extension 0.2.0; lens-api 0.2.0 (ingest, upsert, auth) |
 | 8 Engineering Verification | `tests/` | extension: 6 vitest incl. live re-parse; lens-api: 5 pytest + live Postgres upsert check |
