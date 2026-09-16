@@ -246,3 +246,22 @@ class Database:
             else:
                 rows = await con.fetch("SELECT * FROM seen_links ORDER BY updated_at DESC LIMIT $1", limit)
         return [dict(r) for r in rows]
+
+    # ---------- retention ----------
+
+    async def purge_records(self, retention_days: int) -> dict[str, int]:
+        """Delete records (and their comments) whose post date — created_at, else captured_at —
+        is older than `retention_days`, plus frontier rows no record references any more.
+        Returns counts. A retention of 0 disables purging (returns zeros)."""
+        if retention_days <= 0:
+            return {"records": 0, "seen_links": 0}
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                n_rec = await con.fetchval(
+                    "WITH d AS (DELETE FROM records WHERE COALESCE(created_at, captured_at) < now() - ($1::int * interval '1 day') RETURNING 1) "
+                    "SELECT count(*) FROM d", retention_days)
+                n_seen = await con.fetchval(
+                    "WITH d AS (DELETE FROM seen_links s WHERE s.updated_at < now() - ($1::int * interval '1 day') "
+                    "AND NOT EXISTS (SELECT 1 FROM records r WHERE r.url_hash = s.url_hash) RETURNING 1) SELECT count(*) FROM d",
+                    retention_days)
+        return {"records": int(n_rec or 0), "seen_links": int(n_seen or 0)}

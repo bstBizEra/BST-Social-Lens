@@ -103,3 +103,9 @@ Register in a client (Claude Code `.mcp.json` / MCP Hub gateway):
 
 Smoke test against a running server (token read from `.env`): `bash services/lens-api/mcp-smoke.sh`.
 Verified live on bizera-wsl 2026-09-17: 401 without token; initialize / tools/list / all five tools OK.
+
+## Retention (data minimisation)
+
+`LENS_RETENTION_DAYS` (default **730** = 24 months; `0` disables) — records whose post date
+(else capture date) is older are deleted, together with frontier rows no record references.
+Runs at startup and every 24 h in-process; `POST /admin/purge?days=N` (bearer) runs it now.
