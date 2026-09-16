@@ -58,6 +58,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 
 | Gate | Folder | Status |
 |---|---|---|
+| 0 Governance | `docs/00-governance` | **`STATUS.md`** — auditable status snapshot, updated by PR only (the Claude Project `status/` docs are working context, not truth) |
 | 1 PRD Review | `docs/01-product-requirements` | pending — PRD to be authored from the research brief |
 | 2 Requirement Decomposition | `docs/01-product-requirements` | pending |
 | 3 Architecture Design | `docs/03-architecture` | **done** — `research-brief-base-stack.md`, `adr-0001-lensdb-ingest-topology.md` |
