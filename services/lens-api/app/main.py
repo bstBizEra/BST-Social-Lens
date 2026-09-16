@@ -9,9 +9,12 @@ Endpoints
   GET  /records          paginated read for the Console (bearer auth)
   GET  /stats            per-platform counts (bearer auth)
   POST /mcp              Model Context Protocol (Streamable HTTP, read-only tools; bearer auth)
+  POST /admin/purge      run the retention purge now (bearer auth); also runs daily in-process
 """
 from __future__ import annotations
 
+import asyncio
+import logging
 import os
 import pathlib
 from contextlib import asynccontextmanager
@@ -31,14 +34,34 @@ TOKEN = os.environ.get("LENS_API_TOKEN", "")
 CORS_ORIGINS = [o for o in os.environ.get("LENS_CORS_ORIGINS", "").split(",") if o]
 # The Social Lens Console static dir; served at / when present (same-origin → no CORS).
 CONSOLE_DIR = os.environ.get("LENS_CONSOLE_DIR", "/srv/console")
+# Data minimisation: delete records older than this many days (by post date, else capture date).
+# 0 disables. Default 730 (24 months). The purge runs at startup and then every 24 h.
+RETENTION_DAYS = int(os.environ.get("LENS_RETENTION_DAYS", "730"))
+PURGE_INTERVAL_S = 24 * 3600
+
+log = logging.getLogger("lens-api")
 
 db = Database(DSN)
+
+
+async def _purge_loop() -> None:
+    while True:
+        try:
+            res = await db.purge_records(RETENTION_DAYS)
+            if res["records"] or res["seen_links"]:
+                log.info("retention purge (%s days): %s", RETENTION_DAYS, res)
+        except Exception as e:  # never let the purge take the API down
+            log.warning("retention purge failed: %s", e)
+        await asyncio.sleep(PURGE_INTERVAL_S)
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.connect()
+    task = asyncio.create_task(_purge_loop()) if RETENTION_DAYS > 0 else None
     yield
+    if task:
+        task.cancel()
     await db.close()
 
 
@@ -146,6 +169,14 @@ async def stats() -> dict:
         "by_type": {r["record_type"]: r["n"] for r in by_type},
         "last_capture": last.isoformat() if last else None,
     }
+
+
+@app.post("/admin/purge", dependencies=[Depends(require_token)])
+async def admin_purge(days: int | None = Query(default=None, ge=0)) -> dict:
+    """Run the retention purge now. `days` overrides LENS_RETENTION_DAYS for this call (0 = no-op)."""
+    d = RETENTION_DAYS if days is None else days
+    res = await db.purge_records(d)
+    return {"retention_days": d, **res}
 
 
 @app.post("/mcp", dependencies=[Depends(require_token)])

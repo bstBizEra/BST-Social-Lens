@@ -6,6 +6,7 @@ All notable changes to BST Social Lens are documented here. Format loosely follo
 ## [Unreleased]
 
 ### Added
+- **lens-api — retention purge**: `LENS_RETENTION_DAYS` (default 730, 0 = off) deletes records older than N days by post date (else capture date) plus orphaned frontier rows; runs at startup + daily; `POST /admin/purge?days=N` runs it on demand.
 - **lens-api 0.4.0 — MCP adapter** (`POST /mcp`, ADR-0004 Phase 4 item): Model Context Protocol over Streamable HTTP with read-only tools `search_records`, `get_record`, `get_stats`, `top_containers`, `list_seen`; bearer-token gated; dependency-free JSON-RPC dispatcher (`app/mcp.py`); 5 pytest + live smoke script (`mcp-smoke.sh`). Lets BST agents query Social Lens through MCP Hub / Claude Code.
 
 ## [0.5.0] — 2026-09-16

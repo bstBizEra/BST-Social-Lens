@@ -52,6 +52,10 @@ class FakeDB:
     async def count_records(self) -> int:
         return len(self.store)
 
+    async def purge_records(self, retention_days: int):
+        self.purged = retention_days
+        return {"records": 0 if retention_days <= 0 else 2, "seen_links": 0 if retention_days <= 0 else 1}
+
 
 def make_client() -> tuple[TestClient, FakeDB]:
     fake = FakeDB()
@@ -160,3 +164,12 @@ def test_seen_upsert_and_list():
 def test_seen_requires_token():
     client, _ = make_client()
     assert client.post("/seen", json={"links": []}).status_code == 401
+
+
+def test_admin_purge_endpoint():
+    c, fake = make_client()
+    assert c.post("/admin/purge").status_code == 401
+    r = c.post("/admin/purge", headers={"authorization": "Bearer test-token"})
+    assert r.status_code == 200 and r.json()["records"] == 2 and fake.purged == main.RETENTION_DAYS
+    r = c.post("/admin/purge?days=0", headers={"authorization": "Bearer test-token"})
+    assert r.json() == {"retention_days": 0, "records": 0, "seen_links": 0}
