@@ -97,7 +97,9 @@ export function classifyLabel(text: string, cfg: AssistConfig = DEFAULT_ASSIST):
 export function isSamePage(href: string | undefined, pageUrl: string): boolean {
   if (!href) return true;
   const h = href.trim();
-  if (h === '' || h === '#' || h.startsWith('#') || h.startsWith('javascript:')) return true;
+  if (h === '' || h === '#' || h.startsWith('#')) return true;
+  // javascript: / data: / vbscript: hrefs execute code — never "in-page" for our purposes.
+  if (/^\s*(javascript|data|vbscript):/i.test(h)) return false;
   try {
     const a = new URL(h, pageUrl);
     const p = new URL(pageUrl);
@@ -128,10 +130,11 @@ export function pickExpanders(
   for (let i = 0; i < candidates.length && out.length < budget; i++) {
     const c = candidates[i]!;
     if (!isSamePage(c.href, pageUrl)) continue;
-    // Only role=button / button / TikTok view-more hints — plain spans inside links are not clickable targets.
+    // Control semantics AND label must both pass: a recognised control (button role, <button>,
+    // or a TikTok view-more/expand hint) carrying an allow-listed label. Neither alone is enough.
     const clickable = c.tag === 'button' || c.role === 'button' || (c.hint ?? '').includes('view-more') || (c.hint ?? '').includes('expand');
     if (!clickable) continue;
-    const kind = classifyLabel(c.text, cfg) ?? ((c.hint ?? '').includes('view-more') ? 'replies' : null);
+    const kind = classifyLabel(c.text, cfg);
     if (!kind) continue;
     out.push({ index: i, kind });
   }
@@ -148,4 +151,32 @@ export function nextClickDelay(cfg: AssistConfig, rnd: () => number = Math.rando
 /** True once the per-run click cap is reached. */
 export function assistExhausted(cfg: AssistConfig, clicks: number): boolean {
   return clicks >= cfg.maxClicks;
+}
+
+/**
+ * Per-run click ledger: an element may be clicked at most once per run, and a
+ * new run starts with a clean slate (so a second run on the same page can
+ * expand controls the previous run already touched — the page may have re-rendered
+ * them). Object-keyed so it is testable without a DOM.
+ */
+export class ClickLedger<T extends object = Element> {
+  private seen = new WeakSet<T>();
+  private runs = 0;
+  /** Start a new run — forgets every element clicked so far. */
+  newRun(): void {
+    this.seen = new WeakSet<T>();
+    this.runs++;
+  }
+  canClick(el: T): boolean {
+    return !this.seen.has(el);
+  }
+  /** Returns false if the element was already clicked this run. */
+  mark(el: T): boolean {
+    if (this.seen.has(el)) return false;
+    this.seen.add(el);
+    return true;
+  }
+  get runCount(): number {
+    return this.runs;
+  }
 }

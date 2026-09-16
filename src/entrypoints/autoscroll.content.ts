@@ -8,12 +8,12 @@
  *
  * Layer B (ADR-0004): when `assist.enabled`, after each scroll round it clicks
  * a few in-page expanders ("View more comments", "View N replies", "See more")
- * chosen by the pure allow-list in `lib/assist.ts`. It never navigates — any
- * element whose href leaves the current page is skipped, and a URL change
- * during the run stops it.
+ * chosen by the pure allow-list in `lib/assist.ts` (control semantics AND label
+ * must both pass). It never navigates — any element whose href leaves the
+ * current page or runs script is skipped, and a URL change during the run stops it.
  */
 import { DEFAULT_AUTORUN, nextDelay, shouldStop, type AutoRunConfig, type AutoRunState } from '../lib/autorun';
-import { DEFAULT_ASSIST, assistExhausted, nextClickDelay, pickExpanders, type AssistConfig, type Candidate } from '../lib/assist';
+import { ClickLedger, DEFAULT_ASSIST, assistExhausted, nextClickDelay, pickExpanders, type AssistConfig, type Candidate } from '../lib/assist';
 
 type Progress = { running: boolean; scrolls: number; clicks: number; reason: string | null };
 
@@ -37,8 +37,8 @@ export default defineContentScript({
     let assist: AssistConfig = DEFAULT_ASSIST;
     let clicks = 0;
     let startHref = '';
-    // Elements already clicked this run — never click the same expander twice.
-    const clicked = new WeakSet<Element>();
+    // Elements already clicked THIS run — reset by start(); never click the same expander twice per run.
+    const clicked = new ClickLedger<Element>();
 
     const report = (reason: string | null) => {
       const p: Progress = { running, scrolls: state?.scrolls ?? 0, clicks, reason };
@@ -69,7 +69,7 @@ export default defineContentScript({
       const els: Element[] = [];
       const cands: Candidate[] = [];
       for (const el of document.querySelectorAll(CANDIDATE_SELECTOR)) {
-        if (clicked.has(el) || !isVisible(el)) continue;
+        if (!clicked.canClick(el) || !isVisible(el)) continue;
         const text = (el.textContent ?? '').trim();
         if (!text || text.length > 80) continue;
         const anchor = el.closest('a[href]') as HTMLAnchorElement | null;
@@ -97,8 +97,7 @@ export default defineContentScript({
         const el = els[picks[i]!.index]!;
         i++;
         try {
-          if (!clicked.has(el) && el.isConnected && isVisible(el)) {
-            clicked.add(el);
+          if (el.isConnected && isVisible(el) && clicked.mark(el)) {
             (el as HTMLElement).click();
             clicks++;
             report(null);
@@ -146,6 +145,7 @@ export default defineContentScript({
       assist = { ...DEFAULT_ASSIST, ...(assistCfg ?? {}) };
       state = { scrolls: 0, startedAt: Date.now(), idleRounds: 0 };
       clicks = 0;
+      clicked.newRun();
       startHref = location.href.split('#')[0]!;
       running = true;
       report(null);
