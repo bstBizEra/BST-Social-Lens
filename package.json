@@ -1,0 +1,29 @@
+{
+  "name": "bst-social-lens",
+  "version": "0.1.0",
+  "description": "BST Social Lens — Chrome/Edge (MV3) extension that captures Facebook group/post and TikTok signals from your own browser session into a local store and the BST ingest API.",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "wxt",
+    "dev:edge": "wxt -b edge",
+    "build": "wxt build",
+    "build:edge": "wxt build -b edge",
+    "zip": "wxt zip",
+    "zip:edge": "wxt zip -b edge",
+    "check": "svelte-check --tsconfig ./tsconfig.json && tsc --noEmit",
+    "postinstall": "wxt prepare",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dexie": "^4.4.6"
+  },
+  "devDependencies": {
+    "@wxt-dev/module-svelte": "^2.0.5",
+    "svelte": "^5.57.0",
+    "svelte-check": "^4.3.0",
+    "typescript": "^5.9.2",
+    "vitest": "^5.0.1",
+    "wxt": "^0.21.4"
+  }
+}
