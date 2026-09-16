@@ -12,10 +12,27 @@ Status: **spike** (ADR-0004 rule 5 — graduates to a service only on a GO decis
 4. Pushes records to `POST /ingest` (COALESCE upsert → refreshes engagement on rows the
    extension already captured) and statuses to `POST /seen`:
    `fetched` (ok) · `skipped` (login-wall / not-found / empty — **final, never retried with a session**) · `failed` (blocked / network — may retry).
-5. Writes `layer-c-report.json` with block rate, per-platform outcomes, field fill rate on OK
-   pages, fetcher mix, and a **GO / NO-GO** decision (GO = ≥10 eligible targets, block rate ≤ 20 %,
-   ≥1 OK). Login walls are excluded from the block rate — a private group is out of scope by
-   design, not a detection failure.
+5. Writes `layer-c-report.json` with per-outcome/platform counts, field fill rate on OK pages,
+   fetcher mix, and the **evidence gate** (ADR-0004 rule 5). GO requires **all** of:
+   - **sample** — ≥ 50 targets attempted, sourced from the seen frontier (`--sample-size`);
+   - **block rate** — (blocked + error) / eligible ≤ 20 %, eligible = attempts − login-wall − not-found
+     (a private group is out of scope by design, not a detection failure);
+   - **usable rate** — ok / eligible ≥ 60 % (so "1 OK + 49 empty" cannot pass);
+   - **incremental value** — vs the LensDB baseline (`GET /records`), OK records add or refresh
+     ≥ 1 field each on average with ≥ 50 % baseline coverage.
+   Missing baseline or experiment-file input → **INCONCLUSIVE** (never GO); any failed criterion → **NO-GO**.
+
+## Acquisition boundary
+
+Every URL — frontier or experiment file — passes `frontier.validate_target()` before any network call:
+
+```
+HTTPS only → facebook.com / tiktok.com host allow-list → no IP literal, localhost, private,
+link-local, credentials or non-443 port → recognised public permalink pattern → fetch
+```
+
+`--experiment-urls` is an **offline experiment input**, not an acquisition path: rejected lines are
+listed in the report and the decision can never be GO.
 
 ## Run (bizera-wsl)
 
@@ -31,11 +48,11 @@ python -m worker.run --limit 50 --dry-run   # fetch + report only
 python -m worker.run --limit 50             # also writes /ingest and /seen
 python -m worker.run --limit 50 --browser   # enable nodriver fallback (needs Chrome/Chromium in WSL)
 
-# Or without the API, from a file of permalinks:
-python -m worker.run --urls urls.txt --dry-run
+# Offline experiment from a file of permalinks (boundary-checked; never GO):
+python -m worker.run --experiment-urls urls.txt --dry-run
 ```
 
-Exit code: `0` GO · `3` NO-GO · `1` nothing eligible · `2` bad args.
+Exit code: `0` GO · `3` NO-GO · `4` INCONCLUSIVE · `1` nothing eligible · `2` bad args.
 
 Pacing defaults to 4–9 s jittered between targets. Keep `--limit` ≤ 50 for the spike.
 
@@ -50,11 +67,11 @@ Pacing defaults to 4–9 s jittered between targets. Keep `--limit` ≤ 50 for t
 ## Layout
 
 ```
-worker/frontier.py   eligibility (public / login-likely / unsupported) + target selection   [pure]
+worker/frontier.py   acquisition boundary (validate_target), eligibility, target selection  [pure]
 worker/extract.py    login-wall / block classification, TikTok + Facebook extraction, record shaping [pure]
 worker/fetch.py      curl_cffi + nodriver fetchers (fresh session/profile per call)
 worker/client.py     stdlib lens-api client (/health /seen /ingest)
-worker/report.py     block-rate summary + GO/NO-GO                                             [pure]
+worker/report.py     evidence gate (sample/block/usable/incremental value) → GO/NO-GO/INCONCLUSIVE [pure]
 worker/run.py        CLI
-tests/               fixtures + 7 tests
+tests/               fixtures + 14 tests
 ```

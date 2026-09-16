@@ -75,7 +75,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 - TikTok comment payloads (`/api/comment/list/`) are captured raw but not yet normalised.
 - TikTok parser still validated only on a synthetic fixture — needs a live smoke test.
 - lens-api `/mcp` adapter for MCP Hub proxying is deferred to Phase 4; auth is a static bearer token until then.
-- `services/lens-worker` is a spike: it stays out of compose until a GO decision (block rate ≤ 20 % on a 50-URL frontier sample). Test: `cd services/lens-worker && pip install -r requirements-dev.txt && pytest -q`.
+- `services/lens-worker` is a spike: it stays out of compose until a GO decision from its evidence gate (≥ 50 frontier targets, block rate ≤ 20 %, usable rate ≥ 60 %, measurable incremental value vs LensDB). Every target passes the acquisition boundary (`validate_target`) before fetch. Test: `cd services/lens-worker && pip install -r requirements-dev.txt && pytest -q`.
 - Side panel requires Chrome/Edge ≥ 116 (`chrome.sidePanel`).
 
 ## 7. Lessons log

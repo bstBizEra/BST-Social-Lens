@@ -33,5 +33,19 @@ class LensApi:
     def mark_seen(self, links: list[dict[str, Any]]) -> dict[str, Any]:
         return self._req("POST", "/seen", {"links": links})
 
+    def records_baseline(self, max_rows: int = 5000, page: int = 1000) -> dict[str, dict[str, Any]]:
+        """Index existing LensDB rows by key — the Layer A/B baseline for incremental value."""
+        out: dict[str, dict[str, Any]] = {}
+        offset = 0
+        while offset < max_rows:
+            rows = self._req("GET", f"/records?limit={page}&offset={offset}").get("records", [])
+            for r in rows:
+                if r.get("key"):
+                    out[r["key"]] = r
+            if len(rows) < page:
+                break
+            offset += page
+        return out
+
     def ingest(self, records: list[dict[str, Any]], source: str, version: str) -> dict[str, Any]:
         return self._req("POST", "/ingest", {"source": source, "version": version, "records": records})
