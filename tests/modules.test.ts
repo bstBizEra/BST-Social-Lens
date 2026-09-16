@@ -60,3 +60,20 @@ describe('tiktok module', () => {
     expect(r.lang).toBe('lo');
   });
 });
+
+describe('facebook module — comet group feed (2026-09 live shape)', () => {
+  it('reads counts from adaptive_ufi_action_renderers and group from story.to', async () => {
+    const recs = await facebookModule.parse(fx('facebook-groups-feed-comet.json'), ctx('https://www.facebook.com/groups/feed/'));
+    expect(recs).toHaveLength(1);
+    const r = recs[0]!;
+    expect(r.container_id).toBe('2010167739046690');
+    expect(r.container_name).toBe('Test Cars Group');
+    expect(r.reactions_total).toBe(15);
+    expect(r.comments_count).toBe(4);
+    expect(r.shares_count).toBe(2);
+    expect(r.text).toContain('ໂຕໂຢຕ້າ');
+    expect(r.hashtags).toEqual(['ຂາຍລົດ', 'vientiane']);
+    expect(r.media[0]?.url).toBe('https://scontent.example/car.jpg');
+    expect(r.parser_version).toBe('0.2.0');
+  });
+});

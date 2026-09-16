@@ -39,6 +39,9 @@
   const exportAs = (format: 'ndjson' | 'csv', platform?: Platform) =>
     run(`Export ${format}`, () => send<{ count: number; filename: string }>({ type: 'export', format, platform }), (r) => `Saved ${r.count} records → ${r.filename}`);
 
+  const exportRaw = (platform?: Platform) =>
+    run('Export raw', () => send<{ count: number; filename: string }>({ type: 'exportRaw', platform }), (r) => `Saved ${r.count} raw payloads → ${r.filename}`);
+
   const sync = () => run('Sync', () => send<{ pushed: number; error?: string }>({ type: 'sync' }), (r) => (r.error ? `Sync error: ${r.error}` : `Pushed ${r.pushed} records`));
 
   const clear = (what: 'records' | 'raw' | 'all') => {
@@ -80,6 +83,10 @@
     <button disabled={busy} onclick={() => exportAs('csv', 'facebook')}>CSV · Facebook</button>
     <button disabled={busy} onclick={() => exportAs('csv', 'tiktok')}>CSV · TikTok</button>
   </div>
+  <div class="row">
+    <button disabled={busy} onclick={() => exportRaw()}>Raw payloads (NDJSON, last 200)</button>
+  </div>
+  <div class="muted">Raw export is for building parser fixtures when records stay at 0.</div>
 </section>
 
 <section class="card">

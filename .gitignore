@@ -8,3 +8,4 @@ dist/
 !.env.example
 .DS_Store
 stats.html
+tests/fixtures/_live/

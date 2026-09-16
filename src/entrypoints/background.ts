@@ -97,6 +97,17 @@ async function exportRecords(format: 'ndjson' | 'csv', platform?: Platform) {
   return { count: rows.length, filename };
 }
 
+async function exportRaw(platform?: Platform, limit = 200) {
+  let q = platform ? db.raw.where('platform').equals(platform) : db.raw.toCollection();
+  const rows = await q.reverse().limit(limit).toArray();
+  const body = rows.map((r) => JSON.stringify(r)).join('\n') + '\n';
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  const filename = `bst-social-lens_raw_${platform ?? 'all'}_${stamp}.ndjson`;
+  const url = `data:application/x-ndjson;charset=utf-8,${encodeURIComponent(body)}`;
+  await browser.downloads.download({ url, filename, saveAs: false });
+  return { count: rows.length, filename };
+}
+
 async function syncToIngest() {
   const settings = await getSettings();
   if (!settings.ingestUrl) return { pushed: 0, error: 'no ingest url' };
@@ -143,6 +154,8 @@ export default defineBackground(() => {
           return stats();
         case 'export':
           return exportRecords(msg.format, msg.platform);
+        case 'exportRaw':
+          return exportRaw(msg.platform, msg.limit);
         case 'clear':
           if (msg.what === 'records' || msg.what === 'all') await db.records.clear();
           if (msg.what === 'raw' || msg.what === 'all') await db.raw.clear();

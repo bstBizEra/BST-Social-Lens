@@ -73,7 +73,7 @@ export const isoFromUnix = (s: unknown): string | undefined => {
 };
 
 export const extractHashtags = (text: string | undefined): string[] =>
-  text ? Array.from(new Set((text.match(/#[\p{L}\p{N}_]+/gu) ?? []).map((h) => h.slice(1)))) : [];
+  text ? Array.from(new Set((text.match(/#[\p{L}\p{M}\p{N}_]+/gu) ?? []).map((h) => h.slice(1)))) : [];
 
 export async function authorFields(
   ctx: ParseContext,

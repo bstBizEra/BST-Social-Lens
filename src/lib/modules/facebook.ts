@@ -46,36 +46,47 @@ function messageText(o: Obj): string | undefined {
   return str(msg?.['text']);
 }
 
-function feedback(o: Obj): Obj | undefined {
-  const f = o['feedback'];
-  if (f && typeof f === 'object') return f as Obj;
-  const cs = o['comet_sections'] as Obj | undefined;
-  const fb = (cs?.['feedback'] as Obj | undefined)?.['story'] as Obj | undefined;
-  const inner = (fb?.['story_ufi_container'] as Obj | undefined)?.['story'] as Obj | undefined;
-  const f2 = inner?.['feedback_context'] as Obj | undefined;
-  const f3 = (f2?.['feedback_target_with_context'] as Obj | undefined) ?? (inner?.['feedback'] as Obj | undefined);
-  return f3;
-}
+/**
+ * Engagement counts. Live shape (2026-09, group feed):
+ *   comet_sections.feedback.story.story_ufi_container.story.feedback_context
+ *     .feedback_target_with_context.comet_ufi_summary_and_actions_renderer.feedback
+ *     .adaptive_ufi_action_renderers[i].feedback.{reaction_count.count | comment_rendering_instance.comments.total_count | share_count.count}
+ * Older/other surfaces put them directly on `feedback`. We walk both subtrees
+ * (never `attached_story`, which is the reshared original) and take the first hit.
+ */
+type Counts = Pick<SocialRecord, 'reactions_total' | 'comments_count' | 'shares_count'>;
 
-function counts(f: Obj | undefined): Pick<SocialRecord, 'reactions_total' | 'comments_count' | 'shares_count'> {
-  if (!f) return {};
-  const reactions_total =
-    num((f['reaction_count'] as Obj | undefined)?.['count']) ??
-    num((f['reactors'] as Obj | undefined)?.['count']) ??
-    num((f['unified_reactors'] as Obj | undefined)?.['count']) ??
-    num(f['i18n_reaction_count']);
-  const comments_count =
-    num((f['comment_count'] as Obj | undefined)?.['total_count']) ??
-    num((f['comments_count_summary_renderer'] as Obj | undefined)?.['feedback'] && ((f['comments_count_summary_renderer'] as Obj)['feedback'] as Obj)['total_comment_count']) ??
-    num(f['total_comment_count']) ??
-    num((f['comment_rendering_instance'] as Obj | undefined)?.['comments'] && (((f['comment_rendering_instance'] as Obj)['comments'] as Obj)['total_count']));
-  const shares_count = num((f['share_count'] as Obj | undefined)?.['count']) ?? num(f['i18n_share_count']);
-  return { reactions_total, comments_count, shares_count };
+function counts(story: Obj): Counts {
+  const out: Counts = {};
+  const roots: unknown[] = [story['feedback'], (story['comet_sections'] as Obj | undefined)?.['feedback']];
+  for (const root of roots) {
+    walk(root, (o) => {
+      if (out.reactions_total === undefined) {
+        out.reactions_total =
+          num((o['reaction_count'] as Obj | undefined)?.['count']) ??
+          num((o['reactors'] as Obj | undefined)?.['count']) ??
+          num((o['unified_reactors'] as Obj | undefined)?.['count']);
+      }
+      if (out.comments_count === undefined) {
+        out.comments_count =
+          num((o['comment_count'] as Obj | undefined)?.['total_count']) ??
+          num(((o['comment_rendering_instance'] as Obj | undefined)?.['comments'] as Obj | undefined)?.['total_count']) ??
+          num(o['total_comment_count']);
+      }
+      if (out.shares_count === undefined) {
+        out.shares_count = num((o['share_count'] as Obj | undefined)?.['count']) ?? num(o['i18n_share_count']);
+      }
+    });
+    if (out.reactions_total !== undefined && out.comments_count !== undefined && out.shares_count !== undefined) break;
+  }
+  return out;
 }
 
 function media(o: Obj): SocialRecord['media'] {
   const out: SocialRecord['media'] = [];
-  walk(o['attachments'] ?? o['attached_story'] ?? [], (m) => {
+  const contentStory = ((o['comet_sections'] as Obj | undefined)?.['content'] as Obj | undefined)?.['story'] as Obj | undefined;
+  const roots = [o['attachments'], contentStory?.['attachments'], contentStory?.['attached_story'], o['attached_story']];
+  walk(roots, (m) => {
     const t = m['__typename'];
     if (t === 'Photo' || t === 'GenericAttachmentMedia') {
       const img = (m['image'] ?? m['photo_image'] ?? m['viewer_image']) as Obj | undefined;
@@ -97,7 +108,7 @@ function media(o: Obj): SocialRecord['media'] {
 
 export const facebookModule: PlatformModule = {
   platform: 'facebook',
-  version: '0.1.0',
+  version: '0.2.0',
   matchesPage: (pageUrl) => PAGE_RE.test(pageUrl),
   matches: (url, pageUrl) => PAGE_RE.test(pageUrl) && /\/api\/graphql\/?/.test(url),
 
@@ -119,23 +130,26 @@ export const facebookModule: PlatformModule = {
         const key = `facebook:${post_id}`;
         const actor = firstActor(s);
         const text = messageText(s);
-        const f = feedback(s);
-        const author = await authorFields(ctx, 'facebook', str(actor?.['id']));
-        const group = (s['to'] as Obj | undefined) ?? (s['target_group'] as Obj | undefined);
+        const owning = (s['feedback'] as Obj | undefined)?.['owning_profile'] as Obj | undefined;
+        const author = await authorFields(ctx, 'facebook', str(actor?.['id']) ?? str(owning?.['id']));
+        const to = s['to'] as Obj | undefined;
+        const group = to?.['__typename'] === 'Group' ? to : ((s['target_group'] as Obj | undefined) ?? undefined);
+        const assocGroupId = str(((s['feedback'] as Obj | undefined)?.['associated_group'] as Obj | undefined)?.['id']);
         const rec: SocialRecord = {
           key,
           platform: 'facebook',
           post_id,
           permalink: str(s['wwwURL']) ?? str(s['url']) ?? str(s['permalink_url']),
-          container_id: container_id ?? str(group?.['id']),
+          // On the aggregated /groups/feed/ page the URL says nothing; trust the story's own group first.
+          container_id: str(group?.['id']) ?? assocGroupId ?? (container_id !== 'feed' ? container_id : undefined),
           container_name: str(group?.['name']),
-          author_name: str(actor?.['name']),
+          author_name: str(actor?.['name']) ?? str(owning?.['name']),
           author_url: str(actor?.['url']) ?? str(actor?.['profile_url']),
           ...author,
           text,
           created_at: isoFromUnix(s['creation_time']),
           captured_at: ctx.captured_at,
-          ...counts(f),
+          ...counts(s),
           media: media(s),
           hashtags: extractHashtags(text),
           parser_version: facebookModule.version,

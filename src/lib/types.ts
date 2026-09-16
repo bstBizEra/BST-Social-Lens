@@ -121,6 +121,7 @@ export type RuntimeMessage =
   | { type: 'capture'; payload: PageCaptureMessage['payload'] }
   | { type: 'stats' }
   | { type: 'export'; format: 'ndjson' | 'csv'; platform?: Platform }
+  | { type: 'exportRaw'; platform?: Platform; limit?: number }
   | { type: 'clear'; what: 'records' | 'raw' | 'all' }
   | { type: 'sync' }
   | { type: 'getSettings' }
