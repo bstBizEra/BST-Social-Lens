@@ -4,6 +4,8 @@ export interface ParseContext {
   page_url: string;
   captured_at: string;
   hashAuthorIds: boolean;
+  /** When false, modules should skip comment extraction. */
+  captureComments?: boolean;
   /** Async SHA-256 helper injected by the caller (WebCrypto). */
   sha256: (input: string) => Promise<string>;
 }

@@ -6,6 +6,21 @@
   let settings = $state<Settings | undefined>(undefined);
   let message = $state('');
   let busy = $state(false);
+  let auto = $state<{ running: boolean; scrolls: number; reason: string | null }>({ running: false, scrolls: 0, reason: null });
+
+  const autoReason: Record<string, string> = {
+    maxScrolls: 'reached scroll cap',
+    maxMinutes: 'reached time cap',
+    endOfFeed: 'reached end of feed',
+    stopped: 'stopped',
+    'no-capture-tab': 'open a Facebook/TikTok tab first',
+  };
+
+  async function refreshAuto() {
+    auto = await send<{ running: boolean; scrolls: number; reason: string | null }>({ type: 'autoState' });
+  }
+  const startAuto = () => run('Start', () => send<{ ok: boolean; running: boolean }>({ type: 'autoStart' }), (r) => (r.running ? 'Auto-scroll started' : 'Open a Facebook or TikTok tab first'));
+  const stopAuto = () => run('Stop', () => send<{ ok: boolean }>({ type: 'autoStop' }), () => 'Auto-scroll stopped');
 
   const send = <T,>(msg: RuntimeMessage) => browser.runtime.sendMessage(msg) as Promise<T>;
 
@@ -44,16 +59,42 @@
 
   const sync = () => run('Sync', () => send<{ pushed: number; error?: string }>({ type: 'sync' }), (r) => (r.error ? `Sync error: ${r.error}` : `Pushed ${r.pushed} records`));
 
-  const clear = (what: 'records' | 'raw' | 'all') => {
+  const clear = (what: 'records' | 'raw' | 'seen' | 'all') => {
     if (!confirm(`Clear ${what}? This cannot be undone.`)) return;
     return run(`Clear ${what}`, () => send<{ ok: boolean }>({ type: 'clear', what }), () => `Cleared ${what}`);
   };
 
+  // Keyword set edited as a comma/space/newline-separated string.
+  let includeText = $state('');
+  let excludeText = $state('');
+  $effect(() => {
+    if (settings) {
+      includeText = settings.keywordSet.include.join(', ');
+      excludeText = (settings.keywordSet.exclude ?? []).join(', ');
+    }
+  });
+  const splitTerms = (s: string) => s.split(/[,\n]/).map((t) => t.trim()).filter(Boolean);
+  function saveKeywords() {
+    if (!settings) return;
+    patch({
+      keywordSet: {
+        ...settings.keywordSet,
+        include: splitTerms(includeText),
+        exclude: splitTerms(excludeText),
+      },
+    });
+  }
+
   onMount(() => {
     refresh();
     loadSettings();
+    refreshAuto();
     const t = setInterval(refresh, 3000);
-    return () => clearInterval(t);
+    const a = setInterval(refreshAuto, 1500);
+    return () => {
+      clearInterval(t);
+      clearInterval(a);
+    };
   });
 </script>
 
@@ -64,14 +105,70 @@
   <div class="stats">
     <div class="stat"><b>{stats?.records.facebook ?? 0}</b><span>Facebook</span></div>
     <div class="stat"><b>{stats?.records.tiktok ?? 0}</b><span>TikTok</span></div>
-    <div class="stat"><b>{stats?.raw ?? 0}</b><span>Raw payloads</span></div>
+    <div class="stat"><b>{stats?.matched ?? 0}</b><span>Matched</span></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><b>{stats?.comments ?? 0}</b><span>Comments</span></div>
+    <div class="stat"><b>{stats?.seen ?? 0}</b><span>Seen links</span></div>
+    <div class="stat"><b>{stats?.raw ?? 0}</b><span>Raw</span></div>
   </div>
   <div class="muted">
     {#if stats?.lastCapture}Last capture {new Date(stats.lastCapture).toLocaleString()}{:else}No captures yet — open a Facebook group or TikTok page and scroll.{/if}
     {#if stats?.unsynced} · {stats.unsynced} unsynced{/if}
+    {#if stats} · store mode: {stats.storeMode}{/if}
   </div>
   {#if settings}
     <label class="toggle">Capture enabled <input type="checkbox" checked={settings.captureEnabled} onchange={(e) => patch({ captureEnabled: e.currentTarget.checked })} /></label>
+  {/if}
+</section>
+
+<section class="card">
+  <h2>Autonomous mode</h2>
+  <div class="muted">
+    {#if auto.running}
+      <span class="dot"></span> Running — {auto.scrolls} scrolls. Keep this tab and panel open.
+    {:else}
+      Manual by default (scroll to capture). Start auto-scroll on the current Facebook/TikTok tab.
+      {#if auto.reason && autoReason[auto.reason]}· last run: {autoReason[auto.reason]}{/if}
+    {/if}
+  </div>
+  <div class="row">
+    {#if auto.running}
+      <button class="danger" onclick={stopAuto}>Stop</button>
+    {:else}
+      <button class="primary" disabled={busy} onclick={startAuto}>Start auto-scroll</button>
+    {/if}
+  </div>
+  {#if settings}
+    <div class="row">
+      <label>Max scrolls
+        <input type="number" min="1" max="500" value={settings.autoRun.maxScrolls} onchange={(e) => settings && patch({ autoRun: { ...settings.autoRun, maxScrolls: Number(e.currentTarget.value) || 40 } })} />
+      </label>
+      <label>Max minutes
+        <input type="number" min="1" max="120" value={settings.autoRun.maxMinutes} onchange={(e) => settings && patch({ autoRun: { ...settings.autoRun, maxMinutes: Number(e.currentTarget.value) || 10 } })} />
+      </label>
+    </div>
+    <div class="muted">Human-like pacing ({(settings.autoRun.minDelayMs / 1000).toFixed(1)}–{(settings.autoRun.maxDelayMs / 1000).toFixed(1)}s between scrolls). Auto-stops at a cap or end of feed. Use a secondary account.</div>
+  {/if}
+</section>
+
+<section class="card">
+  <h2>Keywords &amp; filtering</h2>
+  {#if settings}
+    <label>Include terms (comma or newline separated)
+      <input type="text" value={includeText} oninput={(e) => (includeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="ດິນ, ຂາຍ, ເຊົ່າ, ລາຄາ, ບ້ານ, ເມືອງ, ແຂວງ" />
+    </label>
+    <label>Exclude terms
+      <input type="text" value={excludeText} oninput={(e) => (excludeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="(optional)" />
+    </label>
+    <label>Min. distinct matches
+      <input type="number" min="1" max="10" value={settings.keywordSet.min_hits ?? 1} onchange={(e) => settings && patch({ keywordSet: { ...settings.keywordSet, min_hits: Number(e.currentTarget.value) || 1 } })} />
+    </label>
+    <label class="toggle">Store mode: matched only
+      <input type="checkbox" checked={settings.storeMode === 'matched'} onchange={(e) => patch({ storeMode: e.currentTarget.checked ? 'matched' : 'all' })} />
+    </label>
+    <label class="toggle">Capture comments <input type="checkbox" checked={settings.captureComments} onchange={(e) => patch({ captureComments: e.currentTarget.checked })} /></label>
+    <div class="muted">Matched-only keeps just keyword hits (posts + comments). A matching comment also keeps its parent post. Lao matching is substring-based (NFC-normalized), so ຂາຍດິນ matches both ຂາຍ and ດິນ.</div>
   {/if}
 </section>
 
@@ -108,6 +205,7 @@
   {/if}
   <div class="row">
     <button class="danger" disabled={busy} onclick={() => clear('raw')}>Clear raw</button>
+    <button class="danger" disabled={busy} onclick={() => clear('seen')}>Clear seen links</button>
     <button class="danger" disabled={busy} onclick={() => clear('all')}>Clear everything</button>
   </div>
 </section>

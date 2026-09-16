@@ -74,6 +74,6 @@ describe('facebook module — comet group feed (2026-09 live shape)', () => {
     expect(r.text).toContain('ໂຕໂຢຕ້າ');
     expect(r.hashtags).toEqual(['ຂາຍລົດ', 'vientiane']);
     expect(r.media[0]?.url).toBe('https://scontent.example/car.jpg');
-    expect(r.parser_version).toBe('0.2.0');
+    expect(r.parser_version).toBe('0.3.0');
   });
 });

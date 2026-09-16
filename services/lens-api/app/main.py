@@ -12,18 +12,22 @@ Endpoints
 from __future__ import annotations
 
 import os
+import pathlib
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .db import Database
-from .models import HealthResult, IngestBody, IngestResult, record_to_row
+from .models import HealthResult, IngestBody, IngestResult, SeenBody, record_to_row
 
 DSN = os.environ.get("LENS_DB_DSN", "postgresql://lens:lens@lens-db:5432/lens")
 TOKEN = os.environ.get("LENS_API_TOKEN", "")
-# Comma-separated origins allowed to call the API from a browser (Console artifact).
+# Comma-separated origins allowed to call the API from a browser (Console served elsewhere).
 CORS_ORIGINS = [o for o in os.environ.get("LENS_CORS_ORIGINS", "").split(",") if o]
+# The Social Lens Console static dir; served at / when present (same-origin → no CORS).
+CONSOLE_DIR = os.environ.get("LENS_CONSOLE_DIR", "/srv/console")
 
 db = Database(DSN)
 
@@ -35,7 +39,7 @@ async def lifespan(app: FastAPI):
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.2.0", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.3.0", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -100,14 +104,48 @@ async def records(
     return {"count": len(rows), "records": [dict(r) for r in rows]}
 
 
+@app.post("/seen", dependencies=[Depends(require_token)])
+async def seen_upsert(body: SeenBody) -> dict:
+    rows = [
+        {
+            "url_hash": l.url_hash, "url": l.url, "platform": l.platform,
+            "last_status": l.last_status, "fetch_count": l.fetch_count, "refresh_after": l.refresh_after,
+        }
+        for l in body.links
+    ]
+    inserted, updated = await db.upsert_seen(rows)
+    return {"received": len(rows), "inserted": inserted, "updated": updated}
+
+
+@app.get("/seen", dependencies=[Depends(require_token)])
+async def seen_list(
+    since: str | None = Query(default=None),
+    limit: int = Query(default=1000, ge=1, le=10000),
+) -> dict:
+    rows = await db.seen_since(since, limit)
+    return {"count": len(rows), "links": rows}
+
+
 @app.get("/stats", dependencies=[Depends(require_token)])
 async def stats() -> dict:
     async with db.pool.acquire() as con:
         by_platform = await con.fetch("SELECT platform, count(*) AS n FROM records GROUP BY platform")
+        by_type = await con.fetch("SELECT record_type, count(*) AS n FROM records GROUP BY record_type")
         total = await con.fetchval("SELECT count(*) FROM records")
+        matched = await con.fetchval("SELECT count(*) FROM records WHERE match_score > 0")
+        seen = await con.fetchval("SELECT count(*) FROM seen_links")
         last = await con.fetchval("SELECT max(captured_at) FROM records")
     return {
         "total": total,
+        "matched": matched,
+        "seen_links": seen,
         "by_platform": {r["platform"]: r["n"] for r in by_platform},
+        "by_type": {r["record_type"]: r["n"] for r in by_type},
         "last_capture": last.isoformat() if last else None,
     }
+
+
+# Serve the Console at / (same-origin with the API → the browser fetch needs no CORS).
+# Mounted last so it doesn't shadow the API routes above.
+if pathlib.Path(CONSOLE_DIR).is_dir():
+    app.mount("/", StaticFiles(directory=CONSOLE_DIR, html=True), name="console")

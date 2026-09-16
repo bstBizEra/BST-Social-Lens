@@ -11,7 +11,7 @@
  * Comments: /api/comment/list/  → `comments[]` (stored as records of kind comment in v0.2)
  * Embedded: <script id="__UNIVERSAL_DATA_FOR_REHYDRATION__"> → webapp.video-detail.itemInfo.itemStruct
  */
-import type { SocialRecord } from '../types';
+import type { ContainerType, SocialRecord } from '../types';
 import {
   authorFields,
   extractHashtags,
@@ -35,19 +35,24 @@ function isItem(o: Obj): boolean {
   return typeof o['id'] === 'string' && typeof o['desc'] === 'string' && typeof o['author'] === 'object' && o['author'] !== null && typeof o['stats'] === 'object';
 }
 
-function containerFromPage(pageUrl: string): { container_id?: string; container_name?: string } {
+function containerFromPage(pageUrl: string): { container_id?: string; container_name?: string; container_type: ContainerType } {
   const tag = pageUrl.match(TAG_RE)?.[1];
-  if (tag) return { container_id: `tag:${decodeURIComponent(tag)}`, container_name: `#${decodeURIComponent(tag)}` };
+  if (tag) return { container_id: `tag:${decodeURIComponent(tag)}`, container_name: `#${decodeURIComponent(tag)}`, container_type: 'hashtag' };
   const q = pageUrl.match(SEARCH_RE)?.[1];
-  if (q) return { container_id: `search:${decodeURIComponent(q)}`, container_name: `search "${decodeURIComponent(q)}"` };
+  if (q) return { container_id: `search:${decodeURIComponent(q)}`, container_name: `search "${decodeURIComponent(q)}"`, container_type: 'search' };
   const user = pageUrl.match(/tiktok\.com\/@([^/?#]+)/)?.[1];
-  if (user) return { container_id: `user:${user}`, container_name: `@${user}` };
-  return {};
+  if (user) return { container_id: `user:${user}`, container_name: `@${user}`, container_type: 'profile' };
+  return { container_type: 'feed' };
+}
+
+/** A TikTok comment node from /api/comment/list/. */
+function isTikTokComment(o: Obj): boolean {
+  return typeof o['cid'] === 'string' && typeof o['text'] === 'string' && typeof o['user'] === 'object' && o['user'] !== null;
 }
 
 export const tiktokModule: PlatformModule = {
   platform: 'tiktok',
-  version: '0.1.0',
+  version: '0.3.0',
   matchesPage: (pageUrl) => PAGE_RE.test(pageUrl),
   matches: (url, pageUrl) => PAGE_RE.test(pageUrl) && (API_RE.test(url) || url === 'embedded:__UNIVERSAL_DATA_FOR_REHYDRATION__'),
 
@@ -81,6 +86,7 @@ export const tiktokModule: PlatformModule = {
           key: `tiktok:${post_id}`,
           platform: 'tiktok',
           post_id,
+          record_type: 'post',
           permalink: uniqueId ? `https://www.tiktok.com/@${uniqueId}/video/${post_id}` : undefined,
           ...container,
           author_name: str(author['nickname']) ?? uniqueId,
@@ -97,9 +103,48 @@ export const tiktokModule: PlatformModule = {
           media,
           hashtags: tags.length ? Array.from(new Set(tags)) : extractHashtags(text),
           parser_version: tiktokModule.version,
+          matched_keywords: [],
+          match_score: 0,
           synced: 0,
         };
         byKey.set(rec.key, rec);
+      }
+
+      if (ctx.captureComments !== false) {
+        const comments: Obj[] = [];
+        walk(doc, (o) => {
+          if (isTikTokComment(o)) comments.push(o);
+        });
+        for (const c of comments) {
+          const cid = str(c['cid']);
+          const text = str(c['text']);
+          if (!cid || !text) continue;
+          const user = c['user'] as Obj | undefined;
+          const uniqueId = str(user?.['unique_id']) ?? str(user?.['uniqueId']);
+          const a = await authorFields(ctx, 'tiktok', str(user?.['uid']) ?? str(user?.['id']));
+          byKey.set(`tiktok:${cid}`, {
+            key: `tiktok:${cid}`,
+            platform: 'tiktok',
+            post_id: cid,
+            record_type: 'comment',
+            parent_post_id: str(c['aweme_id']),
+            container_id: container.container_id,
+            container_type: container.container_type,
+            author_name: str(user?.['nickname']) ?? uniqueId,
+            author_url: uniqueId ? `https://www.tiktok.com/@${uniqueId}` : undefined,
+            ...a,
+            text,
+            created_at: isoFromUnix(c['create_time']),
+            captured_at: ctx.captured_at,
+            reactions_total: num(c['digg_count']),
+            media: [],
+            hashtags: extractHashtags(text),
+            parser_version: tiktokModule.version,
+            matched_keywords: [],
+            match_score: 0,
+            synced: 0,
+          });
+        }
       }
     }
     return [...byKey.values()];

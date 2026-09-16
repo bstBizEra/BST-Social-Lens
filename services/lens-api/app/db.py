@@ -16,19 +16,27 @@ SCHEMA_PATH = pathlib.Path(__file__).with_name("schema.sql")
 
 _UPSERT = """
 INSERT INTO records (
-    key, platform, post_id, permalink, container_id, container_name,
-    author_name, author_id, author_hash, author_url, text, lang,
-    created_at, captured_at, reactions_total, reactions_breakdown,
+    key, platform, post_id, record_type, parent_post_id, permalink,
+    container_id, container_name, container_type, matched_keywords, match_score,
+    matched_via, url_hash, author_name, author_id, author_hash, author_url,
+    text, lang, created_at, captured_at, reactions_total, reactions_breakdown,
     comments_count, shares_count, views_count, media, hashtags,
     parser_version, ingest_source, ingest_version
 ) VALUES (
-    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,
-    $20::jsonb,$21::text[],$22,$23,$24
+    $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::text[],$11,$12,$13,$14,$15,$16,$17,$18,$19,
+    $20,$21,$22,$23::jsonb,$24,$25,$26,$27::jsonb,$28::text[],$29,$30,$31
 )
 ON CONFLICT (key) DO UPDATE SET
+    record_type      = EXCLUDED.record_type,
+    parent_post_id   = COALESCE(EXCLUDED.parent_post_id, records.parent_post_id),
     permalink        = COALESCE(EXCLUDED.permalink, records.permalink),
     container_id     = COALESCE(EXCLUDED.container_id, records.container_id),
     container_name   = COALESCE(EXCLUDED.container_name, records.container_name),
+    container_type   = COALESCE(EXCLUDED.container_type, records.container_type),
+    matched_keywords = CASE WHEN array_length(EXCLUDED.matched_keywords, 1) > 0 THEN EXCLUDED.matched_keywords ELSE records.matched_keywords END,
+    match_score      = GREATEST(EXCLUDED.match_score, records.match_score),
+    matched_via      = COALESCE(EXCLUDED.matched_via, records.matched_via),
+    url_hash         = COALESCE(EXCLUDED.url_hash, records.url_hash),
     author_name      = COALESCE(EXCLUDED.author_name, records.author_name),
     author_id        = COALESCE(EXCLUDED.author_id, records.author_id),
     author_hash      = COALESCE(EXCLUDED.author_hash, records.author_hash),
@@ -53,9 +61,10 @@ RETURNING (xmax = 0) AS inserted;
 
 # Column order for the upsert parameters.
 _COLS = [
-    "key", "platform", "post_id", "permalink", "container_id", "container_name",
-    "author_name", "author_id", "author_hash", "author_url", "text", "lang",
-    "created_at", "captured_at", "reactions_total", "reactions_breakdown",
+    "key", "platform", "post_id", "record_type", "parent_post_id", "permalink",
+    "container_id", "container_name", "container_type", "matched_keywords", "match_score",
+    "matched_via", "url_hash", "author_name", "author_id", "author_hash", "author_url",
+    "text", "lang", "created_at", "captured_at", "reactions_total", "reactions_breakdown",
     "comments_count", "shares_count", "views_count", "media", "hashtags",
     "parser_version", "ingest_source", "ingest_version",
 ]
@@ -118,3 +127,40 @@ class Database:
     async def count_records(self) -> int:
         async with self.pool.acquire() as con:
             return await con.fetchval("SELECT count(*) FROM records")
+
+    async def upsert_seen(self, links: list[dict[str, Any]]) -> tuple[int, int]:
+        """Upsert seen-link frontier rows. Returns (inserted, updated)."""
+        if not links:
+            return (0, 0)
+        inserted = 0
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                for row in links:
+                    was_insert = await con.fetchval(
+                        """
+                        INSERT INTO seen_links (url_hash, url, platform, last_status, fetch_count, refresh_after)
+                        VALUES ($1,$2,$3,$4,$5,$6)
+                        ON CONFLICT (url_hash) DO UPDATE SET
+                            last_status   = EXCLUDED.last_status,
+                            fetch_count   = GREATEST(seen_links.fetch_count, EXCLUDED.fetch_count),
+                            refresh_after = COALESCE(EXCLUDED.refresh_after, seen_links.refresh_after),
+                            updated_at    = now()
+                        RETURNING (xmax = 0) AS inserted
+                        """,
+                        row["url_hash"], row["url"], row.get("platform"),
+                        row.get("last_status", "seen"), row.get("fetch_count", 0),
+                        row.get("refresh_after"),
+                    )
+                    if was_insert:
+                        inserted += 1
+        return (inserted, len(links) - inserted)
+
+    async def seen_since(self, since: str | None, limit: int) -> list[dict[str, Any]]:
+        async with self.pool.acquire() as con:
+            if since:
+                rows = await con.fetch(
+                    "SELECT * FROM seen_links WHERE updated_at > $1 ORDER BY updated_at LIMIT $2", since, limit
+                )
+            else:
+                rows = await con.fetch("SELECT * FROM seen_links ORDER BY updated_at LIMIT $1", limit)
+        return [dict(r) for r in rows]

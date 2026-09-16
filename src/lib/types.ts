@@ -5,9 +5,23 @@
  * ingest API, console artifact and BST agents consume one shape.
  */
 
+import { DEFAULT_AUTORUN, type AutoRunConfig } from './autorun';
+import { DEFAULT_KEYWORD_SET, type KeywordSet } from './keywords';
+export type { KeywordSet } from './keywords';
+export type { AutoRunConfig } from './autorun';
+
 export type Platform = 'facebook' | 'tiktok';
 
 export type MediaKind = 'image' | 'video' | 'link';
+
+/** Post vs comment. Comments carry `parent_post_id`. */
+export type RecordType = 'post' | 'comment';
+
+/** Where the item was seen. Derived from the payload, used as a query filter. */
+export type ContainerType = 'group' | 'page' | 'profile' | 'feed' | 'hashtag' | 'search' | 'unknown';
+
+/** Which text triggered the keyword match. */
+export type MatchedVia = 'post' | 'comment' | 'author';
 
 export interface Media {
   kind: MediaKind;
@@ -20,10 +34,16 @@ export interface SocialRecord {
   key: string;
   platform: Platform;
   post_id: string;
+  /** post (default) or comment. */
+  record_type: RecordType;
+  /** For comments: the post_id they belong to. */
+  parent_post_id?: string;
   permalink?: string;
   /** Group id (Facebook) / hashtag or search term (TikTok) the item was seen under. */
   container_id?: string;
   container_name?: string;
+  /** group | page | profile | feed | hashtag | search | unknown. */
+  container_type?: ContainerType;
   author_name?: string;
   /** Raw author id (kept only when `settings.hashAuthorIds` is off). */
   author_id?: string;
@@ -43,9 +63,31 @@ export interface SocialRecord {
   hashtags: string[];
   /** Parser version that produced this record — bump when a module changes. */
   parser_version: string;
+  /** Distinct keyword-set terms this record matched. */
+  matched_keywords: string[];
+  /** Count of distinct matched terms (0 when capturing all). */
+  match_score: number;
+  /** Which field triggered the match (post text, a comment, or author name). */
+  matched_via?: MatchedVia;
+  /** SHA-256 of the normalized permalink — links this record to the seen frontier. */
+  url_hash?: string;
   /** Id of the RawPayload row this was derived from. */
   raw_ref?: number;
   /** Synced to the ingest API? */
+  synced: 0 | 1;
+}
+
+/** Seen-link frontier row — prevents re-opening the same permalink/link. */
+export interface SeenLink {
+  /** SHA-256 of the normalized URL — primary key. */
+  url_hash: string;
+  url: string;
+  platform: Platform | 'unknown';
+  first_seen: string; // ISO
+  last_status: 'seen' | 'queued' | 'fetched' | 'failed' | 'skipped';
+  fetch_count: number;
+  /** Optional: allow a re-visit after this time (prices change). */
+  refresh_after?: string;
   synced: 0 | 1;
 }
 
@@ -84,6 +126,14 @@ export interface Settings {
   ingestUrl: string;
   ingestToken: string;
   autoSync: boolean;
+  /** 'matched' stores only keyword hits; 'all' stores everything, still tagged. */
+  storeMode: 'matched' | 'all';
+  /** Active keyword set applied at capture. */
+  keywordSet: KeywordSet;
+  /** Also parse and store comments (not just posts). */
+  captureComments: boolean;
+  /** Autonomous auto-scroll pacing + caps. */
+  autoRun: AutoRunConfig;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -95,6 +145,10 @@ export const DEFAULT_SETTINGS: Settings = {
   ingestUrl: import.meta.env.WXT_INGEST_URL ?? 'http://localhost:7710/ingest',
   ingestToken: import.meta.env.WXT_INGEST_TOKEN ?? '',
   autoSync: false,
+  storeMode: 'matched',
+  keywordSet: DEFAULT_KEYWORD_SET,
+  captureComments: true,
+  autoRun: DEFAULT_AUTORUN,
 };
 
 /* ---------- Messages: page (MAIN world) → bridge (isolated) → background ---------- */
@@ -122,15 +176,36 @@ export type RuntimeMessage =
   | { type: 'stats' }
   | { type: 'export'; format: 'ndjson' | 'csv'; platform?: Platform }
   | { type: 'exportRaw'; platform?: Platform; limit?: number }
-  | { type: 'clear'; what: 'records' | 'raw' | 'all' }
+  | { type: 'clear'; what: 'records' | 'raw' | 'seen' | 'all' }
   | { type: 'sync' }
   | { type: 'getSettings' }
-  | { type: 'setSettings'; settings: Partial<Settings> };
+  | { type: 'setSettings'; settings: Partial<Settings> }
+  /** Is this normalized URL already in the frontier? */
+  | { type: 'seenCheck'; url: string }
+  /** Mark a URL as seen/queued/fetched in the frontier. */
+  | { type: 'seenMark'; url: string; status: SeenLink['last_status']; platform?: Platform }
+  /** Autonomous mode: start/stop auto-scroll on the active tab (from side panel). */
+  | { type: 'autoStart' }
+  | { type: 'autoStop' }
+  /** Side panel polls the background for the latest auto-run status. */
+  | { type: 'autoState' }
+  /** Progress ping from the auto-scroll content script → background. */
+  | { type: 'autoProgress'; progress: AutoProgress };
+
+export interface AutoProgress {
+  running: boolean;
+  scrolls: number;
+  reason: string | null;
+}
 
 export interface Stats {
   records: Record<Platform, number>;
+  comments: number;
+  matched: number;
+  seen: number;
   raw: number;
   unsynced: number;
   lastCapture?: string;
   captureEnabled: boolean;
+  storeMode: Settings['storeMode'];
 }
