@@ -76,6 +76,23 @@ Layer C experiment. Bind stays `127.0.0.1:7710`; nothing else changes for the ex
 the worker. Return to §2 once Podman is repaired; the schema is identical, so `pg_dump` /
 restore (§8) moves the data.
 
+Helper (same steps, idempotent, secrets read from `.env` and never printed):
+
+```bash
+S=/mnt/c/laragon/www/BST-Social-Lens/services/lens-api/lens-api-local.sh
+bash $S check    # role/db/venv state
+bash $S setup    # create role + db (password synced from .env), pg_trgm, venv, pip install
+bash $S start    # nohup uvicorn on 127.0.0.1:7710 → ~/lens-api-local/lens-api.log
+bash $S health   # /health + Console HTTP code
+bash $S auth     # 401 without token; /stats and /seen with the .env token
+bash $S stop
+```
+Verified 2026-09-17 on bizera-wsl (PostgreSQL 14 already present, Python 3.10): `/health`
+`db:true`, Console 200, reachable from Windows at `http://localhost:7710`. The nohup process
+does not survive a WSL shutdown — rerun `start`.
+
+Manual equivalent:
+
 ```bash
 # 1. Local PostgreSQL (Ubuntu/Debian WSL; once)
 sudo apt-get install -y postgresql postgresql-contrib

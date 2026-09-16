@@ -65,3 +65,7 @@ Endpoint, auth, validation and `record_to_row` flattening are covered without Po
 | `LENS_DB_DSN` | `postgresql://lens:lens@lens-db:5432/lens` | Postgres DSN |
 | `LENS_API_TOKEN` | *(empty = auth off)* | bearer token |
 | `LENS_CORS_ORIGINS` | *(empty)* | comma-separated browser origins allowed to call the API (Console artifact URL) |
+
+## Container-free run (runbook §2a)
+
+`lens-api-local.sh {check|setup|start|stop|status|health|auth}` — runs this service under `uvicorn` against a local PostgreSQL on bizera-wsl while Podman networking is unavailable. Reads `.env`; never prints secrets.
