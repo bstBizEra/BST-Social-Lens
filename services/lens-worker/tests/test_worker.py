@@ -8,7 +8,7 @@ from worker.extract import classify_response, extract, to_record
 from worker.frontier import TargetRejected, eligibility_of, platform_of, select_targets, targets_from_experiment_file, validate_target
 import pytest
 
-from worker.report import Attempt, incremental_value, seen_status_for, summarize
+from worker.report import SAMPLE_SIZE, Attempt, incremental_value, may_write, seen_status_for, summarize
 
 FX = Path(__file__).parent / "fixtures"
 fx = lambda n: (FX / n).read_text(encoding="utf-8")  # noqa: E731
@@ -167,3 +167,20 @@ def test_gate_no_baseline_or_no_value_never_go():
 def test_incremental_value_counts_added_and_refreshed():
     v = incremental_value([_rec(1)], {"tiktok:1": {"key": "tiktok:1", "text": "t", "comments_count": 5}})
     assert v["compared"] == 1 and v["per_field"] == {"added:views_count": 1}
+
+
+def test_writes_only_on_go():
+    assert may_write("GO") is True
+    assert may_write("NO-GO") is False
+    assert may_write("INCONCLUSIVE") is False
+
+
+def test_sample_size_is_not_a_cli_option():
+    import argparse
+    from worker import run as run_mod
+    # Build the parser the CLI uses and assert no override flag exists.
+    p = argparse.ArgumentParser()
+    src = open(run_mod.__file__, encoding="utf-8").read()
+    assert "--sample-size" not in src
+    assert "sample_size=SAMPLE_SIZE" in src
+    assert SAMPLE_SIZE == 50

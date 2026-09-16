@@ -9,12 +9,13 @@ Status: **spike** (ADR-0004 rule 5 — graduates to a service only on a GO decis
    (no cookies), optional `nodriver` fallback with a throwaway profile for JS-only pages.
 3. Extracts only what an anonymous visitor sees: OG metadata, TikTok rehydration JSON
    (`stats`, `desc`, `createTime`), Facebook embedded counters. No author ids, no member data.
-4. Pushes records to `POST /ingest` (COALESCE upsert → refreshes engagement on rows the
-   extension already captured) and statuses to `POST /seen`:
+4. **Only on GO** (and never with `--dry-run`) pushes records to `POST /ingest` (COALESCE upsert →
+   refreshes engagement on rows the extension already captured) and statuses to `POST /seen`.
+   NO-GO / INCONCLUSIVE runs are report-only — "not graduated" is machine-enforced. Statuses:
    `fetched` (ok) · `skipped` (login-wall / not-found / empty — **final, never retried with a session**) · `failed` (blocked / network — may retry).
 5. Writes `layer-c-report.json` with per-outcome/platform counts, field fill rate on OK pages,
    fetcher mix, and the **evidence gate** (ADR-0004 rule 5). GO requires **all** of:
-   - **sample** — ≥ 50 targets attempted, sourced from the seen frontier (`--sample-size`);
+   - **sample** — ≥ 50 targets attempted, sourced from the seen frontier (a constant in `report.py`, deliberately not a CLI flag);
    - **block rate** — (blocked + error) / eligible ≤ 20 %, eligible = attempts − login-wall − not-found
      (a private group is out of scope by design, not a detection failure);
    - **usable rate** — ok / eligible ≥ 60 % (so "1 OK + 49 empty" cannot pass);
@@ -45,7 +46,7 @@ pytest -q                                   # 7 pure tests, no network
 # 50-URL frontier spike against the running API (needs lens-api up, see deploy runbook)
 export LENS_API_URL=http://localhost:7710 LENS_API_TOKEN=...   # from services/lens-api/.env
 python -m worker.run --limit 50 --dry-run   # fetch + report only
-python -m worker.run --limit 50             # also writes /ingest and /seen
+python -m worker.run --limit 50             # writes /ingest and /seen ONLY if the decision is GO
 python -m worker.run --limit 50 --browser   # enable nodriver fallback (needs Chrome/Chromium in WSL)
 
 # Offline experiment from a file of permalinks (boundary-checked; never GO):
@@ -73,5 +74,5 @@ worker/fetch.py      curl_cffi + nodriver fetchers (fresh session/profile per ca
 worker/client.py     stdlib lens-api client (/health /seen /ingest)
 worker/report.py     evidence gate (sample/block/usable/incremental value) → GO/NO-GO/INCONCLUSIVE [pure]
 worker/run.py        CLI
-tests/               fixtures + 14 tests
+tests/               fixtures + 16 tests
 ```

@@ -150,3 +150,9 @@ def summarize(
         "rejected_inputs": [{"url": u, "reason": r} for u, r in (rejected_inputs or [])],
         "attempts_detail": [asdict(a) for a in attempts],
     }
+
+
+def may_write(decision: str) -> bool:
+    """Product-state mutation (POST /ingest, POST /seen) is permitted only on GO.
+    NO-GO and INCONCLUSIVE are report-only: 'not graduated' is machine-enforced."""
+    return decision == "GO"

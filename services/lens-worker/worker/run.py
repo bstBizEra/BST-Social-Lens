@@ -6,10 +6,11 @@
 Pulls up to N frontier links with last_status='seen', validates each against the
 acquisition boundary (https, Facebook/TikTok hosts, no IP/localhost/private,
 recognised permalink pattern), fetches LOGGED OUT (curl_cffi → nodriver fallback),
-extracts public fields, pushes records to /ingest and statuses to /seen (unless
---dry-run), and writes a JSON report with the evidence gate (sample ≥ 50 from the
-frontier, block rate ≤ 20 %, usable rate ≥ 60 %, incremental value vs the LensDB
-baseline) → GO / NO-GO / INCONCLUSIVE (ADR-0004 rule 5).
+extracts public fields, writes a JSON report with the evidence gate (sample ≥ 50
+from the frontier — a constant, not a flag; block rate ≤ 20 %; usable rate ≥ 60 %;
+incremental value vs the LensDB baseline) → GO / NO-GO / INCONCLUSIVE (ADR-0004
+rule 5). Records go to /ingest and statuses to /seen ONLY on GO (and never with
+--dry-run): NO-GO / INCONCLUSIVE runs are report-only.
 """
 from __future__ import annotations
 
@@ -27,7 +28,7 @@ from .client import LensApi
 from .extract import classify_response, extract, to_record
 from .fetch import fetch_with_fallback, jitter
 from .frontier import Target, select_targets, targets_from_experiment_file
-from .report import SAMPLE_SIZE, Attempt, seen_status_for, summarize
+from .report import SAMPLE_SIZE, Attempt, may_write, seen_status_for, summarize
 
 FIELDS = ("text", "author_name", "created_at", "reactions_total", "comments_count", "shares_count", "views_count", "media", "hashtags")
 
@@ -57,7 +58,7 @@ async def run(args: argparse.Namespace) -> int:
         print("NOTE: experiment-file input — the report can be NO-GO or INCONCLUSIVE, never GO (ADR-0004 rule 5).")
     else:
         if not api:
-            print("error: --api or --urls required", file=sys.stderr)
+            print("error: --api or --experiment-urls required", file=sys.stderr)
             return 2
         h = api.health()
         print(f"lens-api: {h.get('status')} db={h.get('db')} records={h.get('records')}")
@@ -101,8 +102,11 @@ async def run(args: argparse.Namespace) -> int:
             print(f"baseline: {len(baseline)} LensDB records for incremental-value comparison")
         except Exception as e:  # report stays INCONCLUSIVE without a baseline
             print(f"baseline unavailable: {type(e).__name__}: {e}")
-    summary = summarize(attempts, source=source, records=records, baseline=baseline, sample_size=args.sample_size, rejected_inputs=rejected)
-    if api and not args.dry_run:
+    # The sample threshold is a governance constant (ADR-0004 rule 5) — deliberately not a CLI option.
+    summary = summarize(attempts, source=source, records=records, baseline=baseline, sample_size=SAMPLE_SIZE, rejected_inputs=rejected)
+    if api and not args.dry_run and not may_write(summary["decision"]):
+        print(f"decision {summary['decision']}: report only — no /ingest or /seen writes (not graduated).")
+    if api and not args.dry_run and may_write(summary["decision"]):
         if records:
             res = api.ingest(records, source="bst-lens-worker", version=WORKER_VERSION)
             print(f"ingest: received={res.get('received')} inserted={res.get('inserted')} updated={res.get('updated')}")
@@ -122,7 +126,6 @@ def main() -> None:
     p.add_argument("--token", default=os.environ.get("LENS_API_TOKEN", ""))
     p.add_argument("--experiment-urls", help="OFFLINE EXPERIMENT INPUT: text file of permalinks; same boundary checks; never yields GO")
     p.add_argument("--limit", type=int, default=SAMPLE_SIZE)
-    p.add_argument("--sample-size", type=int, default=SAMPLE_SIZE, help="minimum attempted frontier targets for GO")
     p.add_argument("--no-baseline", action="store_true", help="skip the LensDB baseline fetch (report becomes INCONCLUSIVE)")
     p.add_argument("--browser", action="store_true", help="enable nodriver fallback (needs Chrome/Chromium)")
     p.add_argument("--skip-login-likely", action="store_true", help="skip Facebook group permalinks")
