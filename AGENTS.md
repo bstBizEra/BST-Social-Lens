@@ -41,7 +41,8 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 4. **Privacy by default.** `hashAuthorIds` is on; raw payloads purge after `rawRetentionDays`. Do not add member-profile aggregation (names + contacts + location) — post-level content and engagement only.
 5. **Account safety.** Any future auto-scroll must use jittered 2–5 s pacing, per-run caps, and run only while the side panel is open. No background autonomous browsing in v0.x.
 6. **Store-listing language.** Never use "scraper"/"crawler" in `manifest.name`, `description`, README headline, or store copy.
-7. **Tests before merge.** `npm run check && npm test && npm run build && npm run build:edge` must pass.
+7. **Tests before merge.** `npm run check && npm test && npm run build && npm run build:edge` must pass (CI: `.github/workflows/parser-health.yml` on every PR).
+8. **Parser health.** Every new fixture in `tests/fixtures/*.json` needs a `FIXTURE_PAGES` entry in `tests/parser-health.test.ts`. Lowering a threshold requires a CHANGELOG note. Weekly: export raw NDJSON from the side panel → `tests/fixtures/_live/` → `npm run health`; promote a sanitised slice to a committed fixture when it shows a new payload shape.
 
 ## 4. Commands
 
@@ -53,6 +54,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 | `npm run zip` / `npm run zip:edge` | store-ready zip |
 | `npm run check` | svelte-check + tsc |
 | `npm test` | vitest parser tests |
+| `npm run health` | parser-health fixture replay with fill-rate thresholds (`tests/parser-health.thresholds.json`). CI runs it on every PR and weekly — that is regression + drift detection on committed fixtures, not upstream shape monitoring |
 
 ## 5. SDLC gates and where artefacts go
 
@@ -61,7 +63,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 | 0 Governance | `docs/00-governance` | **`STATUS.md`** — auditable status snapshot, updated by PR only (the Claude Project `status/` docs are working context, not truth) |
 | 1 PRD Review | `docs/01-product-requirements` | pending — PRD to be authored from the research brief |
 | 2 Requirement Decomposition | `docs/01-product-requirements` | pending |
-| 3 Architecture Design | `docs/03-architecture` | **done** — `research-brief-base-stack.md`, `adr-0001-lensdb-ingest-topology.md` |
+| 3 Architecture Design | `docs/03-architecture` | **done** — `research-brief-base-stack.md`, ADR-0001…0004 (see `docs/03-architecture/README.md`); ADR-0004 fixes the capture-layer policy: extension-first, headless **logged-out only** |
 | 4 Detailed Solution Design | `docs/03-architecture`, `docs/04-data-api-integration` | **done** — schema v1 in `src/lib/types.ts`; ingest contract + LensDB schema in `services/lens-api` |
 | 5 Security/Compliance Design | `docs/05-security-privacy` | pending — Lao EDPL 2017 mapping, ToS exposure register |
 | 6 Implementation Planning | `docs/07-engineering-devsecops` | pending |

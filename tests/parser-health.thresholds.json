@@ -1,0 +1,6 @@
+{
+  "_comment": "Minimum field fill rates (0..1) per platform over the committed fixtures. Lower a value only with a CHANGELOG note; raise when a new fixture proves it.",
+  "min_records": { "facebook": 2, "tiktok": 1 },
+  "facebook": { "post_id": 1, "permalink": 0.5, "container_id": 1, "author_name": 1, "author_hash": 1, "text": 1, "created_at": 1, "reactions_total": 1, "comments_count": 1, "shares_count": 1, "media": 1 },
+  "tiktok":   { "post_id": 1, "permalink": 1, "container_id": 1, "author_hash": 1, "text": 1, "created_at": 1, "views_count": 1, "reactions_total": 1, "media": 1, "hashtags": 1 }
+}
