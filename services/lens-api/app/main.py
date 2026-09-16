@@ -12,18 +12,22 @@ Endpoints
 from __future__ import annotations
 
 import os
+import pathlib
 from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
 
 from .db import Database
 from .models import HealthResult, IngestBody, IngestResult, SeenBody, record_to_row
 
 DSN = os.environ.get("LENS_DB_DSN", "postgresql://lens:lens@lens-db:5432/lens")
 TOKEN = os.environ.get("LENS_API_TOKEN", "")
-# Comma-separated origins allowed to call the API from a browser (Console artifact).
+# Comma-separated origins allowed to call the API from a browser (Console served elsewhere).
 CORS_ORIGINS = [o for o in os.environ.get("LENS_CORS_ORIGINS", "").split(",") if o]
+# The Social Lens Console static dir; served at / when present (same-origin → no CORS).
+CONSOLE_DIR = os.environ.get("LENS_CONSOLE_DIR", "/srv/console")
 
 db = Database(DSN)
 
@@ -139,3 +143,9 @@ async def stats() -> dict:
         "by_type": {r["record_type"]: r["n"] for r in by_type},
         "last_capture": last.isoformat() if last else None,
     }
+
+
+# Serve the Console at / (same-origin with the API → the browser fetch needs no CORS).
+# Mounted last so it doesn't shadow the API routes above.
+if pathlib.Path(CONSOLE_DIR).is_dir():
+    app.mount("/", StaticFiles(directory=CONSOLE_DIR, html=True), name="console")

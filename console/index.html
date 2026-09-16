@@ -1,0 +1,437 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>Social Lens Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&family=Noto+Sans+Lao:wght@400;500;600&display=swap" />
+<style>
+:root {
+  --bg: #f4f6f9;
+  --surface: #ffffff;
+  --surface-2: #eef2f8;
+  --text: #0f172a;
+  --muted: #5b6b85;
+  --border: #dce3ee;
+  --accent: #0f766e;
+  --accent-2: #1d4ed8;
+  --matched: #0f766e;
+  --comment: #7c3aed;
+  --seen: #b45309;
+  --danger: #dc2626;
+  --radius: 14px;
+  --shadow: 0 1px 2px rgba(16,24,40,.06), 0 6px 20px rgba(16,24,40,.05);
+  --ui: "Manrope", system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  --lao: "Noto Sans Lao", "Manrope", system-ui, sans-serif;
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0b1220;
+    --surface: #111a2e;
+    --surface-2: #172238;
+    --text: #e6edf7;
+    --muted: #93a4c3;
+    --border: #223049;
+    --accent: #2dd4bf;
+    --accent-2: #60a5fa;
+    --matched: #2dd4bf;
+    --comment: #a78bfa;
+    --seen: #fbbf24;
+    --danger: #f87171;
+    --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0b1220;
+  --surface: #111a2e;
+  --surface-2: #172238;
+  --text: #e6edf7;
+  --muted: #93a4c3;
+  --border: #223049;
+  --accent: #2dd4bf;
+  --accent-2: #60a5fa;
+  --matched: #2dd4bf;
+  --comment: #a78bfa;
+  --seen: #fbbf24;
+  --danger: #f87171;
+  --shadow: 0 1px 2px rgba(0,0,0,.3), 0 8px 24px rgba(0,0,0,.35);
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; }
+body {
+  background: var(--bg);
+  color: var(--text);
+  font: 15px/1.5 var(--ui);
+  -webkit-font-smoothing: antialiased;
+}
+:lang(lo), .lao { font-family: var(--lao); }
+.wrap { max-width: 1200px; margin: 0 auto; padding-block: 20px; padding-inline: 16px; display: grid; gap: 18px; }
+
+header.top { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.brand { display: flex; align-items: center; gap: 10px; }
+.brand .mark { width: 30px; height: 30px; border-radius: 9px; background: linear-gradient(135deg, var(--accent), var(--accent-2)); box-shadow: var(--shadow); }
+.brand h1 { font-size: 19px; font-weight: 800; margin: 0; letter-spacing: -.01em; }
+.brand small { color: var(--muted); font-weight: 600; }
+.spacer { flex: 1; }
+.pill { display: inline-flex; align-items: center; gap: 7px; padding: 5px 11px; border-radius: 999px; font-size: 12.5px; font-weight: 700; border: 1px solid var(--border); background: var(--surface); }
+.pill .led { width: 8px; height: 8px; border-radius: 50%; background: var(--muted); }
+.pill.live .led { background: var(--matched); box-shadow: 0 0 0 3px color-mix(in srgb, var(--matched) 25%, transparent); }
+.pill.demo .led { background: var(--seen); }
+
+button { font-family: var(--ui); font-weight: 700; border: 1px solid var(--border); background: var(--surface); color: var(--text); border-radius: 10px; padding: 8px 13px; cursor: pointer; font-size: 13.5px; }
+button.primary { background: linear-gradient(135deg, var(--accent), var(--accent-2)); color: #fff; border: 0; }
+button.ghost { background: transparent; }
+button:focus-visible, input:focus-visible, select:focus-visible { outline: 2px solid var(--accent-2); outline-offset: 2px; }
+
+.config { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; display: grid; gap: 10px; box-shadow: var(--shadow); }
+.config .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: end; }
+.field { display: grid; gap: 5px; flex: 1; min-width: 180px; }
+label { font-size: 11.5px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+input, select { font: 14px var(--ui); padding: 9px 11px; border-radius: 9px; border: 1px solid var(--border); background: var(--surface-2); color: var(--text); width: 100%; }
+
+.kpis { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; }
+@media (max-width: 900px) { .kpis { grid-template-columns: repeat(3, 1fr); } }
+@media (max-width: 520px) { .kpis { grid-template-columns: repeat(2, 1fr); } }
+.kpi { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); }
+.kpi b { display: block; font-size: 26px; font-weight: 800; letter-spacing: -.02em; font-variant-numeric: tabular-nums; }
+.kpi span { color: var(--muted); font-size: 12px; font-weight: 600; }
+.kpi.accent b { color: var(--matched); }
+.kpi.comment b { color: var(--comment); }
+.kpi.seen b { color: var(--seen); }
+
+.grid2 { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
+@media (max-width: 860px) { .grid2 { grid-template-columns: 1fr; } }
+.panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px; box-shadow: var(--shadow); display: grid; gap: 12px; }
+.panel h2 { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); margin: 0; }
+.filters { display: grid; gap: 10px; }
+
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip { border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 999px; padding: 4px 10px; font-size: 12.5px; font-weight: 600; cursor: pointer; font-family: var(--lao); }
+.chip.on { background: color-mix(in srgb, var(--accent) 18%, transparent); border-color: var(--accent); color: var(--accent); }
+.chip .n { color: var(--muted); font-weight: 700; margin-inline-start: 5px; }
+
+.bars { display: grid; gap: 7px; }
+.bar { display: grid; grid-template-columns: 1fr auto; gap: 8px; align-items: center; font-size: 12.5px; }
+.bar .track { grid-column: 1 / -1; height: 6px; border-radius: 4px; background: var(--surface-2); overflow: hidden; }
+.bar .fill { height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
+.bar .lbl { font-family: var(--lao); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bar .val { font-variant-numeric: tabular-nums; color: var(--muted); font-weight: 700; }
+
+.tablewrap { overflow-x: auto; border: 1px solid var(--border); border-radius: var(--radius); background: var(--surface); box-shadow: var(--shadow); }
+table { border-collapse: collapse; width: 100%; font-size: 13.5px; }
+thead th { position: sticky; top: 0; background: var(--surface-2); text-align: left; font-size: 11px; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); padding: 10px 12px; white-space: nowrap; border-bottom: 1px solid var(--border); cursor: pointer; }
+tbody td { padding: 11px 12px; border-bottom: 1px solid var(--border); vertical-align: top; }
+tbody tr:hover { background: color-mix(in srgb, var(--accent) 5%, transparent); }
+.txt { max-width: 380px; font-family: var(--lao); }
+.txt .kw { background: color-mix(in srgb, var(--seen) 26%, transparent); border-radius: 3px; padding: 0 2px; }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; border: 1px solid var(--border); }
+.tag.post { color: var(--accent-2); }
+.tag.comment { color: var(--comment); border-color: color-mix(in srgb, var(--comment) 40%, var(--border)); }
+.tag.fb { color: #1d4ed8; } .tag.tt { color: #be185d; }
+.eng { font-variant-numeric: tabular-nums; color: var(--muted); white-space: nowrap; font-size: 12.5px; }
+.mini-chips { display: flex; flex-wrap: wrap; gap: 4px; }
+.mini { font-size: 10.5px; padding: 1px 7px; border-radius: 999px; background: color-mix(in srgb, var(--accent) 14%, transparent); color: var(--accent); font-weight: 700; font-family: var(--lao); }
+a.link { color: var(--accent-2); text-decoration: none; font-weight: 700; }
+a.link:hover { text-decoration: underline; }
+.banner { padding: 10px 14px; border-radius: 10px; font-size: 13px; font-weight: 600; background: color-mix(in srgb, var(--seen) 16%, transparent); border: 1px solid color-mix(in srgb, var(--seen) 40%, var(--border)); color: var(--text); }
+.muted { color: var(--muted); font-size: 12.5px; }
+.toolbar { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.count { font-weight: 700; }
+footer { color: var(--muted); font-size: 12px; text-align: center; padding-block: 8px; }
+@media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="top">
+    <div class="brand">
+      <div class="mark"></div>
+      <div>
+        <h1>Social Lens Console</h1>
+        <small>BST · lead intelligence</small>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <span id="status" class="pill"><span class="led"></span><span id="statusText">Not connected</span></span>
+    <button id="themeBtn" class="ghost" title="Toggle theme">◐</button>
+  </header>
+
+  <section class="config">
+    <div class="row">
+      <div class="field"><label for="apiBase">Ingest API base</label><input id="apiBase" type="url" placeholder="http://localhost:7710" value="http://localhost:7710" /></div>
+      <div class="field" style="max-width:260px"><label for="token">Bearer token</label><input id="token" type="password" placeholder="LENS_API_TOKEN" /></div>
+      <button id="connectBtn" class="primary">Connect</button>
+      <button id="demoBtn" class="ghost">Load demo data</button>
+    </div>
+    <div id="banner" class="banner" hidden></div>
+  </section>
+
+  <section class="kpis" id="kpis"></section>
+
+  <div class="grid2">
+    <div style="display:grid; gap:16px;">
+      <div class="panel filters">
+        <h2>Filters</h2>
+        <div class="field"><label for="q">Search text / author</label><input id="q" type="search" placeholder="e.g. ປາກເຊ, ດ່ວນ" /></div>
+        <div class="field"><label for="fPlatform">Platform</label>
+          <select id="fPlatform"><option value="">All</option><option value="facebook">Facebook</option><option value="tiktok">TikTok</option></select>
+        </div>
+        <div class="field"><label for="fType">Record type</label>
+          <select id="fType"><option value="">Posts + comments</option><option value="post">Posts only</option><option value="comment">Comments only</option></select>
+        </div>
+        <div class="field"><label for="fContainer">Source type</label>
+          <select id="fContainer"><option value="">All sources</option><option value="group">Group</option><option value="page">Page</option><option value="profile">Profile</option><option value="hashtag">Hashtag</option><option value="search">Search</option><option value="feed">Feed</option></select>
+        </div>
+        <div class="row" style="display:flex; gap:8px;">
+          <div class="field"><label for="fFrom">From date</label><input id="fFrom" type="date" /></div>
+          <div class="field"><label for="fTo">To date</label><input id="fTo" type="date" /></div>
+        </div>
+      </div>
+      <div class="panel">
+        <h2>Keywords matched</h2>
+        <div class="chips" id="kwFacets"></div>
+      </div>
+      <div class="panel">
+        <h2>Top sources</h2>
+        <div class="bars" id="containerBars"></div>
+      </div>
+    </div>
+
+    <div class="panel" style="padding:0; overflow:hidden;">
+      <div class="toolbar" style="padding:12px 14px;">
+        <strong>Leads</strong>
+        <span class="muted"><span id="rowCount" class="count">0</span> shown</span>
+        <div class="spacer" style="flex:1"></div>
+        <button id="csvBtn" class="ghost">Export CSV</button>
+      </div>
+      <div class="tablewrap">
+        <table>
+          <thead><tr>
+            <th data-sort="created_at">Date</th>
+            <th data-sort="platform">Platform</th>
+            <th data-sort="record_type">Type</th>
+            <th data-sort="container_name">Source</th>
+            <th data-sort="author_name">Author</th>
+            <th>Text</th>
+            <th data-sort="match_score">Keywords</th>
+            <th data-sort="reactions_total">Engagement</th>
+            <th>Link</th>
+          </tr></thead>
+          <tbody id="rows"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <footer>Social Lens Console · reads the BST ingest API · post &amp; comment content only, author IDs hashed</footer>
+</div>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+const store = {
+  get(k, d) { try { return JSON.parse(localStorage.getItem("sl:" + k)) ?? d; } catch { return d; } },
+  set(k, v) { try { localStorage.setItem("sl:" + k, JSON.stringify(v)); } catch {} },
+};
+let RECORDS = [];
+let MODE = "none"; // live | demo | none
+let sortKey = "created_at", sortDir = -1;
+const activeKw = new Set();
+
+/* ---- demo dataset (Lao real-estate flavour) ---- */
+function demoData() {
+  const now = Date.now();
+  const mk = (o) => Object.assign({
+    platform: "facebook", record_type: "post", container_type: "group",
+    matched_keywords: [], match_score: 0, media: [], hashtags: [], reactions_total: 0, comments_count: 0, shares_count: 0,
+  }, o);
+  return [
+    mk({ key: "facebook:1", post_id: "1", container_name: "ຊື້ດິນ ແລະ ຂາຍດິນ ທົ່ວນະຄອນຫລວງ", author_name: "Offroad Max", text: "ຂາຍດິນ ປາກເຊ ຕິດຖະໜົນ ລາຄາ 450 ລ້ານ ຕໍ່ໄຮ່ ສົນໃຈໂທ 020xxxx", matched_keywords: ["ດິນ","ຂາຍ","ລາຄາ"], match_score: 3, reactions_total: 42, comments_count: 7, shares_count: 3, created_at: new Date(now-3*864e5).toISOString(), permalink: "https://www.facebook.com/groups/1/posts/1/" }),
+    mk({ key: "facebook:2", post_id: "2", container_name: "ອວດບ້ານກັນນະ", author_name: "Fuu Nawae", text: "ໃຫ້ເຊົ່າ ບ້ານ 2 ຊັ້ນ ເມືອງ ໄຊທານີ 3.5 ລ້ານ/ເດືອນ", matched_keywords: ["ເຊົ່າ","ບ້ານ","ເມືອງ"], match_score: 3, reactions_total: 18, comments_count: 12, shares_count: 1, created_at: new Date(now-1*864e5).toISOString(), permalink: "https://www.facebook.com/groups/2/posts/2/" }),
+    mk({ key: "facebook:2c", post_id: "2c", record_type: "comment", parent_post_id: "2", container_name: "ອວດບ້ານກັນນະ", author_name: "Kot N.", text: "ລາຄາເທົ່າໃດ ສົນໃຈ", matched_keywords: ["ລາຄາ"], match_score: 1, reactions_total: 1, created_at: new Date(now-1*864e5+36e5).toISOString(), permalink: "https://www.facebook.com/groups/2/posts/2/" }),
+    mk({ key: "facebook:3", post_id: "3", container_name: "ຕະຫລາດ ທີ່ດິນ ຫລວງພະບາງ", container_type: "page", author_name: "LPB Land", text: "ຂາຍດ່ວນ ດິນຕິດແມ່ນ້ຳຄານ ແຂວງ ຫລວງພະບາງ 1200 ຕ.ມ", matched_keywords: ["ຂາຍ","ດິນ","ແຂວງ"], match_score: 3, reactions_total: 210, comments_count: 34, shares_count: 20, created_at: new Date(now-6*864e5).toISOString(), permalink: "https://www.facebook.com/groups/3/posts/3/" }),
+    mk({ platform: "tiktok", record_type: "post", container_type: "hashtag", key: "tiktok:7412", post_id: "7412", container_name: "#ຂາຍດິນລາວ", author_name: "@laoland", text: "ດິນຈັດສັນ ເມືອງ ໂພນໂຮງ ລາຄາເລີ່ມ 89 ລ້ານ #ຂາຍດິນ", matched_keywords: ["ດິນ","ເມືອງ","ລາຄາ","ຂາຍ"], match_score: 4, reactions_total: 1200, comments_count: 44, shares_count: 12, views_count: 45000, created_at: new Date(now-2*864e5).toISOString(), permalink: "https://www.tiktok.com/@laoland/video/7412" }),
+    mk({ key: "facebook:4", post_id: "4", container_name: "ນາຍໜ້າ ອະສັງຫາ ນະຄອນຫລວງ", author_name: "Vay Realty", text: "ໃຫ້ເຊົ່າ ຫ້ອງແຖວ ໃກ້ ຕະຫລາດເຊົ້າ ເມືອງ ຈັນທະບູລີ", matched_keywords: ["ເຊົ່າ","ເມືອງ"], match_score: 2, reactions_total: 33, comments_count: 5, shares_count: 0, created_at: new Date(now-5*864e5).toISOString(), permalink: "https://www.facebook.com/groups/4/posts/4/" }),
+  ];
+}
+
+async function api(base, path, token) {
+  const headers = token ? { authorization: "Bearer " + token } : {};
+  const res = await fetch(base.replace(/\/$/, "") + path, { headers });
+  if (!res.ok) throw new Error("HTTP " + res.status);
+  return res.json();
+}
+
+async function connect() {
+  const base = $("apiBase").value.trim();
+  const token = $("token").value.trim();
+  store.set("apiBase", base); store.set("token", token);
+  setStatus("connecting");
+  try {
+    const data = await api(base, "/records?limit=1000", token);
+    RECORDS = data.records || [];
+    MODE = "live";
+    setBanner("");
+    setStatus("live");
+    render();
+  } catch (e) {
+    MODE = "demo";
+    RECORDS = demoData();
+    setBanner("Couldn't reach the API (" + e.message + "). Showing demo data. Run lens-api and open this page at its address, or check the token.");
+    setStatus("demo");
+    render();
+  }
+}
+
+function loadDemo() {
+  RECORDS = demoData(); MODE = "demo";
+  setBanner("Demo data — sample Lao real-estate leads. Connect to your lens-api for live records.");
+  setStatus("demo"); render();
+}
+
+function setStatus(s) {
+  const el = $("status"), t = $("statusText");
+  el.className = "pill" + (s === "live" ? " live" : s === "demo" ? " demo" : "");
+  t.textContent = s === "live" ? "Live" : s === "demo" ? "Demo data" : s === "connecting" ? "Connecting…" : "Not connected";
+}
+function setBanner(msg) { const b = $("banner"); b.hidden = !msg; b.textContent = msg; }
+
+function filtered() {
+  const q = $("q").value.trim().toLowerCase();
+  const p = $("fPlatform").value, ty = $("fType").value, ct = $("fContainer").value;
+  const from = $("fFrom").value ? new Date($("fFrom").value).getTime() : null;
+  const to = $("fTo").value ? new Date($("fTo").value).getTime() + 864e5 : null;
+  let rows = RECORDS.filter((r) => {
+    if (p && r.platform !== p) return false;
+    if (ty && r.record_type !== ty) return false;
+    if (ct && r.container_type !== ct) return false;
+    if (activeKw.size && !(r.matched_keywords || []).some((k) => activeKw.has(k))) return false;
+    if (from || to) { const t = r.created_at ? new Date(r.created_at).getTime() : 0; if (from && t < from) return false; if (to && t > to) return false; }
+    if (q) { const hay = ((r.text || "") + " " + (r.author_name || "") + " " + (r.container_name || "")).toLowerCase(); if (!hay.includes(q)) return false; }
+    return true;
+  });
+  rows.sort((a, b) => {
+    let x = a[sortKey], y = b[sortKey];
+    if (sortKey === "created_at") { x = x ? Date.parse(x) : 0; y = y ? Date.parse(y) : 0; }
+    x = x ?? ""; y = y ?? "";
+    return (x < y ? -1 : x > y ? 1 : 0) * sortDir;
+  });
+  return rows;
+}
+
+function esc(s) { return (s || "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c])); }
+function highlight(text, kws) {
+  let out = esc(text);
+  for (const k of (kws || [])) { if (!k) continue; out = out.split(esc(k)).join('<span class="kw">' + esc(k) + "</span>"); }
+  return out;
+}
+function fmtDate(s) { if (!s) return "—"; const d = new Date(s); return isNaN(d) ? "—" : d.toISOString().slice(0, 10); }
+function num(n) { return (n ?? 0).toLocaleString(); }
+
+function render() {
+  const rows = filtered();
+  // KPIs
+  const total = RECORDS.length;
+  const matched = RECORDS.filter((r) => (r.match_score || 0) > 0).length;
+  const posts = RECORDS.filter((r) => r.record_type !== "comment").length;
+  const comments = RECORDS.filter((r) => r.record_type === "comment").length;
+  const seen = new Set(RECORDS.map((r) => r.url_hash).filter(Boolean)).size;
+  const last = RECORDS.reduce((m, r) => (r.captured_at && r.captured_at > m ? r.captured_at : m), "");
+  $("kpis").innerHTML = [
+    ["Total leads", num(total), ""],
+    ["Matched", num(matched), "accent"],
+    ["Posts", num(posts), ""],
+    ["Comments", num(comments), "comment"],
+    ["Seen links", num(seen), "seen"],
+    ["Last capture", last ? fmtDate(last) : "—", ""],
+  ].map(([l, v, c]) => `<div class="kpi ${c}"><b>${v}</b><span>${l}</span></div>`).join("");
+
+  // keyword facets
+  const kwCount = {};
+  RECORDS.forEach((r) => (r.matched_keywords || []).forEach((k) => (kwCount[k] = (kwCount[k] || 0) + 1)));
+  const kws = Object.entries(kwCount).sort((a, b) => b[1] - a[1]);
+  $("kwFacets").innerHTML = kws.length ? kws.map(([k, n]) =>
+    `<button class="chip ${activeKw.has(k) ? "on" : ""}" data-kw="${esc(k)}">${esc(k)}<span class="n">${n}</span></button>`).join("") : '<span class="muted">No matches yet.</span>';
+
+  // container bars
+  const cCount = {};
+  RECORDS.forEach((r) => { const c = r.container_name || r.container_id || "—"; cCount[c] = (cCount[c] || 0) + 1; });
+  const top = Object.entries(cCount).sort((a, b) => b[1] - a[1]).slice(0, 6);
+  const max = Math.max(1, ...top.map((t) => t[1]));
+  $("containerBars").innerHTML = top.map(([c, n]) =>
+    `<div class="bar"><span class="lbl lao">${esc(c)}</span><span class="val">${n}</span><span class="track"><span class="fill" style="width:${(100 * n / max).toFixed(0)}%"></span></span></div>`).join("") || '<span class="muted">—</span>';
+
+  // table
+  $("rowCount").textContent = rows.length;
+  $("rows").innerHTML = rows.map((r) => {
+    const eng = r.record_type === "comment"
+      ? `❤ ${num(r.reactions_total)}`
+      : `❤ ${num(r.reactions_total)} · 💬 ${num(r.comments_count)}${r.views_count ? " · 👁 " + num(r.views_count) : ""}`;
+    const link = r.permalink ? `<a class="link" href="${esc(r.permalink)}" target="_blank" rel="noopener">open ↗</a>` : "—";
+    const kwc = (r.matched_keywords || []).map((k) => `<span class="mini">${esc(k)}</span>`).join("");
+    return `<tr>
+      <td class="eng">${fmtDate(r.created_at)}</td>
+      <td><span class="tag ${r.platform === "tiktok" ? "tt" : "fb"}">${r.platform === "tiktok" ? "TikTok" : "FB"}</span></td>
+      <td><span class="tag ${r.record_type === "comment" ? "comment" : "post"}">${r.record_type || "post"}</span></td>
+      <td class="txt">${esc(r.container_name || r.container_id || "—")}</td>
+      <td>${esc(r.author_name || "—")}</td>
+      <td class="txt">${highlight(r.text || "", r.matched_keywords)}</td>
+      <td><div class="mini-chips">${kwc || "—"}</div></td>
+      <td class="eng">${eng}</td>
+      <td>${link}</td>
+    </tr>`;
+  }).join("") || `<tr><td colspan="9" class="muted" style="padding:24px;text-align:center">No leads match the current filters.</td></tr>`;
+}
+
+function toCsv(rows) {
+  const cols = ["platform","record_type","container_name","author_name","text","matched_keywords","match_score","reactions_total","comments_count","shares_count","views_count","created_at","permalink"];
+  const cell = (v) => { if (v == null) return ""; const s = Array.isArray(v) ? v.join("|") : String(v); return /[",\n]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s; };
+  return "﻿" + [cols.join(",")].concat(rows.map((r) => cols.map((c) => cell(r[c])).join(","))).join("\r\n");
+}
+function exportCsv() {
+  const blob = new Blob([toCsv(filtered())], { type: "text/csv" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = "social-lens_" + new Date().toISOString().slice(0, 10) + ".csv";
+  document.body.appendChild(a); a.click(); a.remove();
+}
+
+/* wire up */
+["q","fPlatform","fType","fContainer","fFrom","fTo"].forEach((id) => $(id).addEventListener("input", render));
+$("kwFacets").addEventListener("click", (e) => {
+  const b = e.target.closest("[data-kw]"); if (!b) return;
+  const k = b.getAttribute("data-kw");
+  activeKw.has(k) ? activeKw.delete(k) : activeKw.add(k);
+  render();
+});
+document.querySelectorAll("th[data-sort]").forEach((th) => th.addEventListener("click", () => {
+  const k = th.getAttribute("data-sort");
+  if (sortKey === k) sortDir *= -1; else { sortKey = k; sortDir = k === "created_at" || k.includes("count") || k.includes("score") || k.includes("reactions") ? -1 : 1; }
+  render();
+}));
+$("connectBtn").addEventListener("click", connect);
+$("demoBtn").addEventListener("click", loadDemo);
+$("csvBtn").addEventListener("click", exportCsv);
+$("themeBtn").addEventListener("click", () => {
+  const cur = document.documentElement.getAttribute("data-theme");
+  const next = cur === "dark" ? "light" : cur === "light" ? "" : "dark";
+  if (next) document.documentElement.setAttribute("data-theme", next); else document.documentElement.removeAttribute("data-theme");
+  store.set("theme", next);
+});
+
+/* boot */
+(function boot() {
+  const t = store.get("theme", ""); if (t) document.documentElement.setAttribute("data-theme", t);
+  const b = store.get("apiBase", ""); if (b) $("apiBase").value = b;
+  const tok = store.get("token", ""); if (tok) $("token").value = tok;
+  // Auto-connect when served from the same origin as the API; else show demo so the page is never empty.
+  if (location.protocol.startsWith("http")) connect(); else loadDemo();
+})();
+</script>
+</body>
+</html>

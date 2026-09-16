@@ -20,7 +20,9 @@ services:
     # No ports: — reachable only on the pod network, never from Windows/LAN.
 
   lens-api:
-    build: .
+    build:
+      context: ../..
+      dockerfile: services/lens-api/Dockerfile
     environment:
       LENS_DB_DSN: postgresql://${POSTGRES_USER:-lens}:${POSTGRES_PASSWORD:-lens}@lens-db:5432/${POSTGRES_DB:-lens}
       LENS_API_TOKEN: ${LENS_API_TOKEN:-}
