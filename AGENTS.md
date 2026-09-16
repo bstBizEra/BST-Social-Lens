@@ -54,7 +54,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 | `npm run zip` / `npm run zip:edge` | store-ready zip |
 | `npm run check` | svelte-check + tsc |
 | `npm test` | vitest parser tests |
-| `npm run health` | parser-health fixture replay with fill-rate thresholds (`tests/parser-health.thresholds.json`); also runs weekly in CI |
+| `npm run health` | parser-health fixture replay with fill-rate thresholds (`tests/parser-health.thresholds.json`). CI runs it on every PR and weekly — that is regression + drift detection on committed fixtures, not upstream shape monitoring |
 
 ## 5. SDLC gates and where artefacts go
 

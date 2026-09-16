@@ -1,14 +1,17 @@
-# Parser health — fixture replay + full gate.
+# Parser health — automated parser-REGRESSION + dependency/build-DRIFT detection.
 #
 # Runs on every PR/push to main (code regressions) and weekly on Monday 02:00 UTC
-# = 09:00 Vientiane (drift check: dependency updates, Node/TS changes). On a
-# scheduled failure it opens — or comments on — a "parser-health" issue so the
-# breakage surfaces before the Console shows empty KPIs.
+# = 09:00 Vientiane (drift: dependency updates, Node/TS changes). On a scheduled
+# failure it opens — or comments on — a "parser-health" issue.
 #
-# What it cannot see: a Meta/TikTok payload-shape change is only visible with a
-# fresh raw export. Weekly manual step (AGENTS.md §7): side panel → "Raw payloads
-# (NDJSON)" → drop into tests/fixtures/_live/ → `npm run health`. Promote a
-# sanitised slice to tests/fixtures/*.json when it reveals a new shape.
+# This is NOT upstream payload-shape monitoring: CI only sees committed fixtures.
+# A Meta/TikTok response-shape change is detected by the weekly manual step
+# (AGENTS.md §3.8): side panel → "Raw payloads (NDJSON)" → tests/fixtures/_live/ →
+# `npm run health`; promote a sanitised slice to tests/fixtures/*.json when it
+# reveals a new shape.
+#
+# Third-party actions are SHA-pinned (tag noted beside each); permissions are
+# read-only except the notify job.
 name: parser-health
 
 on:
@@ -21,7 +24,6 @@ on:
 
 permissions:
   contents: read
-  issues: write
 
 concurrency:
   group: parser-health-${{ github.ref }}
@@ -32,8 +34,8 @@ jobs:
     name: extension · check / test / build
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -49,8 +51,8 @@ jobs:
     name: lens-api · pytest
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
           cache: pip
@@ -60,22 +62,31 @@ jobs:
       - run: pytest -q
         working-directory: services/lens-api
 
+  detect:
+    name: detect optional components
+    runs-on: ubuntu-latest
+    outputs:
+      worker: ${{ steps.p.outputs.worker }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - id: p
+        run: echo "worker=$([ -f services/lens-worker/requirements-dev.txt ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
+
   lens-worker:
-    name: lens-worker · pytest (if present)
+    # Shown as SKIPPED (not green) when services/lens-worker is absent on this ref,
+    # so a green run never implies the worker was tested.
+    name: lens-worker · pytest
+    needs: detect
+    if: needs.detect.outputs.worker == 'true'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - id: present
-        run: echo "yes=$([ -f services/lens-worker/requirements-dev.txt ] && echo true || echo false)" >> "$GITHUB_OUTPUT"
-      - if: steps.present.outputs.yes == 'true'
-        uses: actions/setup-python@v5
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5
         with:
           python-version: "3.12"
-      - if: steps.present.outputs.yes == 'true'
-        run: pip install -r requirements-dev.txt
+      - run: pip install -r requirements-dev.txt
         working-directory: services/lens-worker
-      - if: steps.present.outputs.yes == 'true'
-        run: pytest -q
+      - run: pytest -q
         working-directory: services/lens-worker
 
   notify:
@@ -83,8 +94,11 @@ jobs:
     needs: [extension, lens-api, lens-worker]
     if: always() && github.event_name == 'schedule' && contains(needs.*.result, 'failure')
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      issues: write
     steps:
-      - uses: actions/github-script@v7
+      - uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
             const title = 'parser-health: weekly fixture replay failed';
