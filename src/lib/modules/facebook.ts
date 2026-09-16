@@ -7,7 +7,7 @@
  * `Story` node signature and pull fields defensively. Anything unparseable
  * yields no record; the raw payload is kept for re-parsing after a fix.
  */
-import type { SocialRecord } from '../types';
+import type { ContainerType, SocialRecord } from '../types';
 import {
   authorFields,
   extractHashtags,
@@ -27,6 +27,22 @@ type Obj = Record<string, unknown>;
 
 function isStory(o: Obj): boolean {
   return o['__typename'] === 'Story' && (typeof o['post_id'] === 'string' || typeof o['id'] === 'string');
+}
+
+function isComment(o: Obj): boolean {
+  return (
+    o['__typename'] === 'Comment' &&
+    typeof o['id'] === 'string' &&
+    (typeof o['legacy_fbid'] === 'string' || typeof o['body'] === 'object' || typeof o['author'] === 'object')
+  );
+}
+
+function containerType(pageUrl: string, group: Obj | undefined): ContainerType {
+  if (group?.['__typename'] === 'Group' || GROUP_RE.test(pageUrl)) return 'group';
+  if (/facebook\.com\/(pages|marketplace)\//.test(pageUrl)) return 'page';
+  if (/facebook\.com\/groups\/feed\/?/.test(pageUrl)) return 'group';
+  if (/facebook\.com\/(profile\.php|[^/]+\/?$)/.test(pageUrl)) return 'profile';
+  return 'feed';
 }
 
 function firstActor(o: Obj): Obj | undefined {
@@ -106,9 +122,14 @@ function media(o: Obj): SocialRecord['media'] {
   return out.filter((m) => (seen.has(m.url) ? false : (seen.add(m.url), true)));
 }
 
+function commentText(o: Obj): string | undefined {
+  const body = o['body'] as Obj | undefined;
+  return str(body?.['text']) ?? str(o['text']);
+}
+
 export const facebookModule: PlatformModule = {
   platform: 'facebook',
-  version: '0.2.0',
+  version: '0.3.0',
   matchesPage: (pageUrl) => PAGE_RE.test(pageUrl),
   matches: (url, pageUrl) => PAGE_RE.test(pageUrl) && /\/api\/graphql\/?/.test(url),
 
@@ -118,6 +139,9 @@ export const facebookModule: PlatformModule = {
     const groupMatch = ctx.page_url.match(GROUP_RE);
     const container_id = groupMatch?.[1];
     const byKey = new Map<string, SocialRecord>();
+    // Track the most recent post id seen so comments can be attributed even when
+    // Facebook nests them under a feedback container without an explicit post ref.
+    let lastPostId: string | undefined;
 
     for (const doc of docs) {
       const stories: Obj[] = [];
@@ -127,6 +151,7 @@ export const facebookModule: PlatformModule = {
       for (const s of stories) {
         const post_id = str(s['post_id']) ?? str(s['id']);
         if (!post_id) continue;
+        lastPostId = post_id;
         const key = `facebook:${post_id}`;
         const actor = firstActor(s);
         const text = messageText(s);
@@ -139,10 +164,12 @@ export const facebookModule: PlatformModule = {
           key,
           platform: 'facebook',
           post_id,
+          record_type: 'post',
           permalink: str(s['wwwURL']) ?? str(s['url']) ?? str(s['permalink_url']),
           // On the aggregated /groups/feed/ page the URL says nothing; trust the story's own group first.
           container_id: str(group?.['id']) ?? assocGroupId ?? (container_id !== 'feed' ? container_id : undefined),
           container_name: str(group?.['name']),
+          container_type: containerType(ctx.page_url, group),
           author_name: str(actor?.['name']) ?? str(owning?.['name']),
           author_url: str(actor?.['url']) ?? str(actor?.['profile_url']),
           ...author,
@@ -153,6 +180,8 @@ export const facebookModule: PlatformModule = {
           media: media(s),
           hashtags: extractHashtags(text),
           parser_version: facebookModule.version,
+          matched_keywords: [],
+          match_score: 0,
           synced: 0,
         };
         // Facebook repeats the same story in several wrappers; prefer the richest copy.
@@ -161,8 +190,47 @@ export const facebookModule: PlatformModule = {
           byKey.set(key, { ...prev, ...rec, media: rec.media.length ? rec.media : prev?.media ?? [] });
         }
       }
+
+      if (ctx.captureComments !== false) {
+        const comments: Obj[] = [];
+        walk(doc, (o) => {
+          if (isComment(o)) comments.push(o);
+        });
+        for (const c of comments) {
+          const cid = str(c['legacy_fbid']) ?? str(c['id']);
+          const text = commentText(c);
+          if (!cid || !text) continue;
+          const cauthor = c['author'] as Obj | undefined;
+          const author = await authorFields(ctx, 'facebook', str(cauthor?.['id']));
+          const key = `facebook:${cid}`;
+          byKey.set(key, {
+            key,
+            platform: 'facebook',
+            post_id: cid,
+            record_type: 'comment',
+            parent_post_id: lastPostId,
+            permalink: str(c['url']),
+            container_id: container_id !== 'feed' ? container_id : undefined,
+            container_type: containerType(ctx.page_url, undefined),
+            author_name: str(cauthor?.['name']),
+            author_url: str(cauthor?.['url']),
+            ...author,
+            text,
+            created_at: isoFromUnix(c['created_time']),
+            captured_at: ctx.captured_at,
+            media: [],
+            hashtags: extractHashtags(text),
+            parser_version: facebookModule.version,
+            matched_keywords: [],
+            match_score: 0,
+            synced: 0,
+          });
+        }
+      }
     }
-    // Drop empty shells (no text, no media, no counts) — usually placeholders.
-    return [...byKey.values()].filter((r) => r.text || r.media.length || r.reactions_total !== undefined);
+    // Drop empty post shells; keep any comment that has text.
+    return [...byKey.values()].filter(
+      (r) => r.record_type === 'comment' || r.text || r.media.length || r.reactions_total !== undefined,
+    );
   },
 };

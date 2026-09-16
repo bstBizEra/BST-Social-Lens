@@ -11,10 +11,12 @@
  * MV3 rules honoured here: all listeners registered at top level; no state
  * kept in memory that matters — IndexedDB is the source of truth.
  */
-import { db, getSettings, purgeOldRaw, setSettings, upsertRecords } from '../lib/db';
+import { db, getSettings, purgeOldRaw, seenGet, seenMark, setSettings, upsertRecords } from '../lib/db';
 import { toCsv, toNdjson } from '../lib/export';
+import { matchFields } from '../lib/keywords';
 import { moduleForResponse, type ParseContext } from '../lib/modules';
-import type { Platform, RuntimeMessage, Stats } from '../lib/types';
+import { normalizeUrl, urlHash } from '../lib/url';
+import type { Platform, RuntimeMessage, SocialRecord, Stats } from '../lib/types';
 
 const SYNC_ALARM = 'bst-social-lens:sync';
 const PURGE_ALARM = 'bst-social-lens:purge';
@@ -37,7 +39,13 @@ async function handleCapture(payload: Extract<RuntimeMessage, { type: 'capture' 
   let records: Awaited<ReturnType<NonNullable<typeof mod>['parse']>> = [];
 
   if (mod) {
-    const ctx: ParseContext = { page_url: payload.page_url, captured_at, hashAuthorIds: settings.hashAuthorIds, sha256 };
+    const ctx: ParseContext = {
+      page_url: payload.page_url,
+      captured_at,
+      hashAuthorIds: settings.hashAuthorIds,
+      captureComments: settings.captureComments,
+      sha256,
+    };
     try {
       records = await mod.parse(payload.body, ctx);
       parsed = records.length;
@@ -45,6 +53,41 @@ async function handleCapture(payload: Extract<RuntimeMessage, { type: 'capture' 
       parse_error = e instanceof Error ? e.message : String(e);
     }
   }
+
+  // Keyword tagging + store-mode gate. A comment match promotes its parent post.
+  const set = settings.keywordSet;
+  const commentMatchByParent = new Map<string, string[]>();
+  for (const r of records) {
+    const m = matchFields([r.text, r.author_name], set);
+    r.matched_keywords = m.hits;
+    r.match_score = m.score;
+    if (m.matched) {
+      r.matched_via = r.record_type === 'comment' ? 'comment' : (r.text && m.hits.length ? 'post' : 'author');
+      if (r.record_type === 'comment' && r.parent_post_id) {
+        commentMatchByParent.set(r.parent_post_id, Array.from(new Set([...(commentMatchByParent.get(r.parent_post_id) ?? []), ...m.hits])));
+      }
+    }
+  }
+  // Promote posts whose comments matched.
+  for (const r of records) {
+    if (r.record_type === 'post') {
+      const viaComment = commentMatchByParent.get(r.post_id);
+      if (viaComment && r.match_score === 0) {
+        r.matched_keywords = viaComment;
+        r.match_score = viaComment.length;
+        r.matched_via = 'comment';
+      }
+    }
+  }
+
+  // Compute url_hash for every record with a permalink (feeds the seen frontier).
+  for (const r of records) {
+    if (r.permalink) r.url_hash = await urlHash(r.permalink);
+  }
+
+  // Store-mode gate: 'matched' keeps only records with a hit (or a promoted post).
+  const toStore: SocialRecord[] =
+    settings.storeMode === 'all' ? records : records.filter((r) => r.match_score > 0);
 
   let raw_ref: number | undefined;
   if (settings.keepRawPayloads) {
@@ -62,21 +105,52 @@ async function handleCapture(payload: Extract<RuntimeMessage, { type: 'capture' 
     });
   }
 
-  const stored = await upsertRecords(records.map((r) => ({ ...r, raw_ref })));
+  const stored = await upsertRecords(toStore.map((r) => ({ ...r, raw_ref })));
+
+  // Record permalinks in the seen frontier so they aren't re-opened later.
+  for (const r of toStore) {
+    if (!r.url_hash || !r.permalink) continue;
+    const existing = await seenGet(r.url_hash);
+    if (!existing) {
+      await seenMark({
+        url_hash: r.url_hash,
+        url: normalizeUrl(r.permalink),
+        platform: r.platform,
+        first_seen: captured_at,
+        last_status: 'seen',
+        fetch_count: 0,
+        synced: 0,
+      });
+    }
+  }
+
   await updateBadge();
   return { stored, parsed, platform, parse_error };
 }
 
 async function stats(): Promise<Stats> {
-  const [fb, tt, raw, unsynced, settings, last] = await Promise.all([
+  const [fb, tt, comments, matched, seen, raw, unsynced, settings, last] = await Promise.all([
     db.records.where('platform').equals('facebook').count(),
     db.records.where('platform').equals('tiktok').count(),
+    db.records.where('record_type').equals('comment').count(),
+    db.records.where('match_score').above(0).count(),
+    db.seen.count(),
     db.raw.count(),
     db.records.where('synced').equals(0).count(),
     getSettings(),
     db.records.orderBy('captured_at').last(),
   ]);
-  return { records: { facebook: fb, tiktok: tt }, raw, unsynced, captureEnabled: settings.captureEnabled, lastCapture: last?.captured_at };
+  return {
+    records: { facebook: fb, tiktok: tt },
+    comments,
+    matched,
+    seen,
+    raw,
+    unsynced,
+    captureEnabled: settings.captureEnabled,
+    storeMode: settings.storeMode,
+    lastCapture: last?.captured_at,
+  };
 }
 
 async function updateBadge() {
@@ -159,8 +233,28 @@ export default defineBackground(() => {
         case 'clear':
           if (msg.what === 'records' || msg.what === 'all') await db.records.clear();
           if (msg.what === 'raw' || msg.what === 'all') await db.raw.clear();
+          if (msg.what === 'seen' || msg.what === 'all') await db.seen.clear();
           await updateBadge();
           return { ok: true };
+        case 'seenCheck': {
+          const hash = await urlHash(msg.url);
+          const hit = await seenGet(hash);
+          const fresh = hit && (!hit.refresh_after || hit.refresh_after > new Date().toISOString());
+          return { seen: !!fresh, status: hit?.last_status ?? null, url_hash: hash };
+        }
+        case 'seenMark': {
+          const hash = await urlHash(msg.url);
+          const inserted = await seenMark({
+            url_hash: hash,
+            url: normalizeUrl(msg.url),
+            platform: msg.platform ?? 'unknown',
+            first_seen: new Date().toISOString(),
+            last_status: msg.status,
+            fetch_count: 0,
+            synced: 0,
+          });
+          return { ok: true, inserted, url_hash: hash };
+        }
         case 'sync':
           return syncToIngest();
         case 'getSettings':

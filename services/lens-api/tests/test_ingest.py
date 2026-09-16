@@ -17,6 +17,7 @@ from app.models import SocialRecord, record_to_row  # noqa: E402
 class FakeDB:
     def __init__(self) -> None:
         self.store: dict[str, dict] = {}
+        self.seen: dict[str, dict] = {}
         self.runs: list[dict] = []
 
     async def connect(self) -> None: ...
@@ -28,11 +29,21 @@ class FakeDB:
             if row["key"] not in self.store:
                 inserted += 1
             else:
-                # emulate GREATEST(captured_at) + COALESCE engagement refresh
                 prev = self.store[row["key"]]
                 row = {**prev, **{k: v for k, v in row.items() if v is not None}}
             self.store[row["key"]] = row
         return (inserted, len(rows) - inserted)
+
+    async def upsert_seen(self, rows):
+        inserted = 0
+        for row in rows:
+            if row["url_hash"] not in self.seen:
+                inserted += 1
+            self.seen[row["url_hash"]] = row
+        return (inserted, len(rows) - inserted)
+
+    async def seen_since(self, since, limit):
+        return list(self.seen.values())[:limit]
 
     async def record_ingest_run(self, source, ext_version, sent, inserted, updated, remote_addr):
         self.runs.append({"source": source, "sent": sent, "inserted": inserted, "updated": updated})
@@ -113,3 +124,39 @@ def test_record_to_row_flattens_media_and_hashtags():
     assert row["media"] == [{"kind": "image", "url": "https://x/y.jpg"}]
     assert row["hashtags"] == ["lao"]
     assert row["ingest_source"] == "ext"
+
+
+def test_ingest_comment_with_parent_and_matched_fields():
+    client, fake = make_client()
+    h = {"authorization": "Bearer test-token"}
+    comment = {
+        "key": "facebook:c1", "platform": "facebook", "post_id": "c1",
+        "record_type": "comment", "parent_post_id": "123",
+        "text": "ລາຄາເທົ່າໃດ", "captured_at": "2026-09-16T00:00:00Z",
+        "matched_keywords": ["ລາຄາ"], "match_score": 1, "matched_via": "comment",
+        "media": [], "hashtags": [],
+    }
+    r = client.post("/ingest", json={"records": [comment]}, headers=h)
+    assert r.status_code == 200 and r.json()["inserted"] == 1
+    stored = fake.store["facebook:c1"]
+    assert stored["record_type"] == "comment"
+    assert stored["parent_post_id"] == "123"
+    assert stored["match_score"] == 1
+
+
+def test_seen_upsert_and_list():
+    client, fake = make_client()
+    h = {"authorization": "Bearer test-token"}
+    link = {"url_hash": "abc123", "url": "https://www.facebook.com/groups/1/posts/2/", "platform": "facebook", "last_status": "seen"}
+    r = client.post("/seen", json={"links": [link]}, headers=h)
+    assert r.status_code == 200 and r.json()["inserted"] == 1
+    # idempotent
+    r2 = client.post("/seen", json={"links": [link]}, headers=h)
+    assert r2.json()["inserted"] == 0 and r2.json()["updated"] == 1
+    lst = client.get("/seen", headers=h)
+    assert lst.status_code == 200 and lst.json()["count"] == 1
+
+
+def test_seen_requires_token():
+    client, _ = make_client()
+    assert client.post("/seen", json={"links": []}).status_code == 401

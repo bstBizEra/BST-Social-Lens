@@ -12,6 +12,7 @@ import {
   DEFAULT_SETTINGS,
   type CaptureRun,
   type RawPayload,
+  type SeenLink,
   type Settings,
   type SocialRecord,
 } from '../types';
@@ -23,6 +24,7 @@ export class SocialLensDB extends Dexie {
   raw!: EntityTable<RawPayload, 'id'>;
   runs!: EntityTable<CaptureRun, 'id'>;
   settings!: EntityTable<SettingsRow, 'id'>;
+  seen!: EntityTable<SeenLink, 'url_hash'>;
 
   constructor() {
     super('bst-social-lens');
@@ -31,6 +33,14 @@ export class SocialLensDB extends Dexie {
       raw: '++id, platform, captured_at',
       runs: '++id, platform, started_at',
       settings: 'id',
+    });
+    // v2: keyword frontier — record_type/parent index + seen-link table.
+    this.version(2).stores({
+      records: 'key, platform, record_type, container_id, parent_post_id, created_at, captured_at, synced, match_score',
+      raw: '++id, platform, captured_at',
+      runs: '++id, platform, started_at',
+      settings: 'id',
+      seen: 'url_hash, platform, last_status, synced',
     });
   }
 }
@@ -68,6 +78,9 @@ export async function upsertRecords(records: SocialRecord[]): Promise<number> {
         created_at: existing.created_at ?? rec.created_at,
         media: rec.media.length ? rec.media : existing.media,
         hashtags: rec.hashtags.length ? rec.hashtags : existing.hashtags,
+        // Union matched keywords across sightings.
+        matched_keywords: Array.from(new Set([...(existing.matched_keywords ?? []), ...(rec.matched_keywords ?? [])])),
+        match_score: Math.max(existing.match_score ?? 0, rec.match_score ?? 0),
         synced: 0,
       };
       await db.records.put(merged);
@@ -75,6 +88,28 @@ export async function upsertRecords(records: SocialRecord[]): Promise<number> {
     }
   });
   return written;
+}
+
+/** Returns the SeenLink if the normalized url_hash is already known. */
+export async function seenGet(url_hash: string): Promise<SeenLink | undefined> {
+  return db.seen.get(url_hash);
+}
+
+/** Insert or update a frontier entry. Returns true if it was newly inserted. */
+export async function seenMark(link: SeenLink): Promise<boolean> {
+  const existing = await db.seen.get(link.url_hash);
+  if (!existing) {
+    await db.seen.add(link);
+    return true;
+  }
+  await db.seen.put({
+    ...existing,
+    last_status: link.last_status,
+    fetch_count: existing.fetch_count + (link.last_status === 'fetched' ? 1 : 0),
+    refresh_after: link.refresh_after ?? existing.refresh_after,
+    synced: 0,
+  });
+  return false;
 }
 
 export async function purgeOldRaw(retentionDays: number): Promise<number> {

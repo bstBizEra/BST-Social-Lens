@@ -44,10 +44,31 @@
 
   const sync = () => run('Sync', () => send<{ pushed: number; error?: string }>({ type: 'sync' }), (r) => (r.error ? `Sync error: ${r.error}` : `Pushed ${r.pushed} records`));
 
-  const clear = (what: 'records' | 'raw' | 'all') => {
+  const clear = (what: 'records' | 'raw' | 'seen' | 'all') => {
     if (!confirm(`Clear ${what}? This cannot be undone.`)) return;
     return run(`Clear ${what}`, () => send<{ ok: boolean }>({ type: 'clear', what }), () => `Cleared ${what}`);
   };
+
+  // Keyword set edited as a comma/space/newline-separated string.
+  let includeText = $state('');
+  let excludeText = $state('');
+  $effect(() => {
+    if (settings) {
+      includeText = settings.keywordSet.include.join(', ');
+      excludeText = (settings.keywordSet.exclude ?? []).join(', ');
+    }
+  });
+  const splitTerms = (s: string) => s.split(/[,\n]/).map((t) => t.trim()).filter(Boolean);
+  function saveKeywords() {
+    if (!settings) return;
+    patch({
+      keywordSet: {
+        ...settings.keywordSet,
+        include: splitTerms(includeText),
+        exclude: splitTerms(excludeText),
+      },
+    });
+  }
 
   onMount(() => {
     refresh();
@@ -64,14 +85,40 @@
   <div class="stats">
     <div class="stat"><b>{stats?.records.facebook ?? 0}</b><span>Facebook</span></div>
     <div class="stat"><b>{stats?.records.tiktok ?? 0}</b><span>TikTok</span></div>
-    <div class="stat"><b>{stats?.raw ?? 0}</b><span>Raw payloads</span></div>
+    <div class="stat"><b>{stats?.matched ?? 0}</b><span>Matched</span></div>
+  </div>
+  <div class="stats">
+    <div class="stat"><b>{stats?.comments ?? 0}</b><span>Comments</span></div>
+    <div class="stat"><b>{stats?.seen ?? 0}</b><span>Seen links</span></div>
+    <div class="stat"><b>{stats?.raw ?? 0}</b><span>Raw</span></div>
   </div>
   <div class="muted">
     {#if stats?.lastCapture}Last capture {new Date(stats.lastCapture).toLocaleString()}{:else}No captures yet — open a Facebook group or TikTok page and scroll.{/if}
     {#if stats?.unsynced} · {stats.unsynced} unsynced{/if}
+    {#if stats} · store mode: {stats.storeMode}{/if}
   </div>
   {#if settings}
     <label class="toggle">Capture enabled <input type="checkbox" checked={settings.captureEnabled} onchange={(e) => patch({ captureEnabled: e.currentTarget.checked })} /></label>
+  {/if}
+</section>
+
+<section class="card">
+  <h2>Keywords &amp; filtering</h2>
+  {#if settings}
+    <label>Include terms (comma or newline separated)
+      <input type="text" value={includeText} oninput={(e) => (includeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="ດິນ, ຂາຍ, ເຊົ່າ, ລາຄາ, ບ້ານ, ເມືອງ, ແຂວງ" />
+    </label>
+    <label>Exclude terms
+      <input type="text" value={excludeText} oninput={(e) => (excludeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="(optional)" />
+    </label>
+    <label>Min. distinct matches
+      <input type="number" min="1" max="10" value={settings.keywordSet.min_hits ?? 1} onchange={(e) => settings && patch({ keywordSet: { ...settings.keywordSet, min_hits: Number(e.currentTarget.value) || 1 } })} />
+    </label>
+    <label class="toggle">Store mode: matched only
+      <input type="checkbox" checked={settings.storeMode === 'matched'} onchange={(e) => patch({ storeMode: e.currentTarget.checked ? 'matched' : 'all' })} />
+    </label>
+    <label class="toggle">Capture comments <input type="checkbox" checked={settings.captureComments} onchange={(e) => patch({ captureComments: e.currentTarget.checked })} /></label>
+    <div class="muted">Matched-only keeps just keyword hits (posts + comments). A matching comment also keeps its parent post. Lao matching is substring-based (NFC-normalized), so ຂາຍດິນ matches both ຂາຍ and ດິນ.</div>
   {/if}
 </section>
 
@@ -108,6 +155,7 @@
   {/if}
   <div class="row">
     <button class="danger" disabled={busy} onclick={() => clear('raw')}>Clear raw</button>
+    <button class="danger" disabled={busy} onclick={() => clear('seen')}>Clear seen links</button>
     <button class="danger" disabled={busy} onclick={() => clear('all')}>Clear everything</button>
   </div>
 </section>
