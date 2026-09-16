@@ -76,7 +76,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 - Facebook GraphQL `Story` shape varies by surface (group feed vs permalink vs page); parser was written against representative shapes and must be validated against captured raw payloads from real Lao groups.
 - TikTok comment payloads (`/api/comment/list/`) are captured raw but not yet normalised.
 - TikTok parser still validated only on a synthetic fixture — needs a live smoke test.
-- lens-api `/mcp` adapter for MCP Hub proxying is deferred to Phase 4; auth is a static bearer token until then.
+- lens-api `/mcp` adapter (read-only MCP tools, `app/mcp.py`) shipped in lens-api 0.4.0; auth remains the static bearer token.
 - Side panel requires Chrome/Edge ≥ 116 (`chrome.sidePanel`).
 
 ## 7. Lessons log
@@ -90,4 +90,4 @@ Record mistakes and their fixes here so they carry forward.
 
 ## 8. Server tier (services/lens-api)
 
-FastAPI ingest + PostgreSQL (LensDB) on `bizera-wsl` under Podman. `lens-db` has no published ports; `lens-api` is published on `127.0.0.1:7710` only. Dedup via SQL upsert on `platform:post_id`. See `services/lens-api/README.md` and `docs/03-architecture/adr-0001-lensdb-ingest-topology.md`. Test: `cd services/lens-api && pip install -r requirements-dev.txt && pytest -q`.
+FastAPI ingest + PostgreSQL (LensDB) on `bizera-wsl` (Podman, or container-free via runbook §2a / `bst-lens-api.service`). `POST /mcp` exposes read-only MCP tools for BST agents. `lens-db` has no published ports; `lens-api` is published on `127.0.0.1:7710` only. Dedup via SQL upsert on `platform:post_id`. See `services/lens-api/README.md` and `docs/03-architecture/adr-0001-lensdb-ingest-topology.md`. Test: `cd services/lens-api && pip install -r requirements-dev.txt && pytest -q`.

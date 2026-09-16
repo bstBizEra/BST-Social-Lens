@@ -3,6 +3,11 @@
 All notable changes to BST Social Lens are documented here. Format loosely follows
 [Keep a Changelog](https://keepachangelog.com/); versioning is [SemVer](https://semver.org/).
 
+## [Unreleased]
+
+### Added
+- **lens-api 0.4.0 — MCP adapter** (`POST /mcp`, ADR-0004 Phase 4 item): Model Context Protocol over Streamable HTTP with read-only tools `search_records`, `get_record`, `get_stats`, `top_containers`, `list_seen`; bearer-token gated; dependency-free JSON-RPC dispatcher (`app/mcp.py`); 5 pytest + live smoke script (`mcp-smoke.sh`). Lets BST agents query Social Lens through MCP Hub / Claude Code.
+
 ## [0.5.0] — 2026-09-16
 
 ### Added

@@ -71,3 +71,35 @@ Endpoint, auth, validation and `record_to_row` flattening are covered without Po
 `lens-api-local.sh {check|setup|start|stop|status|health|auth}` — one-off run under `uvicorn` against a local PostgreSQL on bizera-wsl while Podman networking is unavailable. Reads `.env`; never prints secrets.
 
 `install-service.sh` — installs/refreshes the `bst-lens-api` systemd unit (`bst-lens-api.service` + `run-service.sh`) so the API starts with WSL and restarts on failure.
+
+## MCP adapter — `POST /mcp` (lens-api 0.4.0)
+
+Model Context Protocol over Streamable HTTP so BST agents (via BizEra MCP Hub, Claude Code,
+or any MCP client) query Social Lens with tools. Read-only; same bearer token as the REST API;
+no server-initiated stream (`GET /mcp` → 405). Dependency-free JSON-RPC dispatcher in
+`app/mcp.py` — `initialize`, `ping`, `tools/list`, `tools/call`, notifications, batches.
+
+| Tool | Purpose |
+|---|---|
+| `search_records` | substring text search (Lao/Thai/EN, ILIKE) + platform / record_type / container_id / keyword / since / matched_only filters, newest first, limit ≤ 200 |
+| `get_record` | one record by `platform:post_id` with its comments |
+| `get_stats` | totals, matched, seen links, by platform/type, last capture |
+| `top_containers` | groups/hashtags ranked by matched records |
+| `list_seen` | seen-link frontier rows by status |
+
+Register in a client (Claude Code `.mcp.json` / MCP Hub gateway):
+
+```json
+{
+  "mcpServers": {
+    "social-lens": {
+      "type": "http",
+      "url": "http://localhost:7710/mcp",
+      "headers": { "Authorization": "Bearer <LENS_API_TOKEN from services/lens-api/.env>" }
+    }
+  }
+}
+```
+
+Smoke test against a running server (token read from `.env`): `bash services/lens-api/mcp-smoke.sh`.
+Verified live on bizera-wsl 2026-09-17: 401 without token; initialize / tools/list / all five tools OK.
