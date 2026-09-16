@@ -1,0 +1,36 @@
+# BST Social Lens — lens-api + lens-db (podman-compose or docker compose)
+# Runs on bizera-wsl. lens-db is NOT published to the host; only lens-api is.
+name: bst-social-lens
+
+services:
+  lens-db:
+    image: docker.io/library/postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-lens}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-lens}
+      POSTGRES_DB: ${POSTGRES_DB:-lens}
+    volumes:
+      - lens-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-lens}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+    # No ports: — reachable only on the pod network, never from Windows/LAN.
+
+  lens-api:
+    build: .
+    environment:
+      LENS_DB_DSN: postgresql://${POSTGRES_USER:-lens}:${POSTGRES_PASSWORD:-lens}@lens-db:5432/${POSTGRES_DB:-lens}
+      LENS_API_TOKEN: ${LENS_API_TOKEN:-}
+      LENS_CORS_ORIGINS: ${LENS_CORS_ORIGINS:-}
+    ports:
+      - "127.0.0.1:7710:7710"   # localhost only; WSL2 forwards to Windows localhost
+    depends_on:
+      lens-db:
+        condition: service_healthy
+    restart: unless-stopped
+
+volumes:
+  lens-pgdata:

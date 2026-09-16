@@ -1,0 +1,113 @@
+"""BST Social Lens — Ingest API (FastAPI).
+
+The single HTTP boundary between the browser extension / Console and LensDB.
+Owns no state itself; validate → upsert → record run.
+
+Endpoints
+  GET  /health           liveness + record count
+  POST /ingest           receive a batch of SocialRecords (bearer auth)
+  GET  /records          paginated read for the Console (bearer auth)
+  GET  /stats            per-platform counts (bearer auth)
+"""
+from __future__ import annotations
+
+import os
+from contextlib import asynccontextmanager
+
+from fastapi import Depends, FastAPI, Header, HTTPException, Query, Request
+from fastapi.middleware.cors import CORSMiddleware
+
+from .db import Database
+from .models import HealthResult, IngestBody, IngestResult, record_to_row
+
+DSN = os.environ.get("LENS_DB_DSN", "postgresql://lens:lens@lens-db:5432/lens")
+TOKEN = os.environ.get("LENS_API_TOKEN", "")
+# Comma-separated origins allowed to call the API from a browser (Console artifact).
+CORS_ORIGINS = [o for o in os.environ.get("LENS_CORS_ORIGINS", "").split(",") if o]
+
+db = Database(DSN)
+
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    await db.connect()
+    yield
+    await db.close()
+
+
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.2.0", lifespan=lifespan)
+
+if CORS_ORIGINS:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=CORS_ORIGINS,
+        allow_methods=["GET", "POST"],
+        allow_headers=["authorization", "content-type"],
+    )
+
+
+def require_token(authorization: str | None = Header(default=None)) -> None:
+    """Bearer-token gate. If LENS_API_TOKEN is unset, auth is disabled (dev only)."""
+    if not TOKEN:
+        return
+    expected = f"Bearer {TOKEN}"
+    if authorization != expected:
+        raise HTTPException(status_code=401, detail="invalid or missing bearer token")
+
+
+@app.get("/health", response_model=HealthResult)
+async def health() -> HealthResult:
+    try:
+        n = await db.count_records()
+        return HealthResult(status="ok", db=True, records=n)
+    except Exception:
+        return HealthResult(status="degraded", db=False)
+
+
+@app.post("/ingest", response_model=IngestResult, dependencies=[Depends(require_token)])
+async def ingest(body: IngestBody, request: Request) -> IngestResult:
+    rows = [record_to_row(r, body.source, body.version) for r in body.records]
+    inserted, updated = await db.upsert_records(rows)
+    run_id = await db.record_ingest_run(
+        body.source, body.version, len(rows), inserted, updated,
+        request.client.host if request.client else None,
+    )
+    return IngestResult(received=len(rows), inserted=inserted, updated=updated, run_id=run_id)
+
+
+@app.get("/records", dependencies=[Depends(require_token)])
+async def records(
+    platform: str | None = Query(default=None),
+    container_id: str | None = Query(default=None),
+    limit: int = Query(default=100, ge=1, le=1000),
+    offset: int = Query(default=0, ge=0),
+) -> dict:
+    clauses, args = [], []
+    if platform:
+        args.append(platform)
+        clauses.append(f"platform = ${len(args)}")
+    if container_id:
+        args.append(container_id)
+        clauses.append(f"container_id = ${len(args)}")
+    where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+    args.extend([limit, offset])
+    sql = (
+        f"SELECT * FROM records {where} "
+        f"ORDER BY created_at DESC NULLS LAST LIMIT ${len(args)-1} OFFSET ${len(args)}"
+    )
+    async with db.pool.acquire() as con:
+        rows = await con.fetch(sql, *args)
+    return {"count": len(rows), "records": [dict(r) for r in rows]}
+
+
+@app.get("/stats", dependencies=[Depends(require_token)])
+async def stats() -> dict:
+    async with db.pool.acquire() as con:
+        by_platform = await con.fetch("SELECT platform, count(*) AS n FROM records GROUP BY platform")
+        total = await con.fetchval("SELECT count(*) FROM records")
+        last = await con.fetchval("SELECT max(captured_at) FROM records")
+    return {
+        "total": total,
+        "by_platform": {r["platform"]: r["n"] for r in by_platform},
+        "last_capture": last.isoformat() if last else None,
+    }

@@ -8,4 +8,11 @@ dist/
 !.env.example
 .DS_Store
 stats.html
+
+# python service
+services/lens-api/.venv/
+services/lens-api/**/__pycache__/
+services/lens-api/.env
+.pytest_cache/
+
 tests/fixtures/_live/
