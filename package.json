@@ -13,7 +13,8 @@
     "zip:edge": "wxt zip -b edge",
     "check": "svelte-check --tsconfig ./tsconfig.json && tsc --noEmit",
     "postinstall": "wxt prepare",
-    "test": "vitest run"
+    "test": "vitest run",
+    "health": "vitest run tests/parser-health.test.ts --reporter=verbose"
   },
   "dependencies": {
     "dexie": "^4.4.6"
