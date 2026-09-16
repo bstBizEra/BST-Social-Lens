@@ -26,8 +26,9 @@ src/
     db/                      Dexie store (records, raw, runs, settings)
     modules/                 one PlatformModule per platform (facebook.ts, tiktok.ts)
     export.ts                CSV / NDJSON serialisers
-tests/                       vitest parser tests + JSON fixtures
-docs/00..12-*                SDLC gate artefacts (see §5)
+tests/                       vitest parser tests + JSON fixtures (+ live.test.ts)
+services/lens-api/           server tier — FastAPI ingest + Postgres (LensDB), Podman compose
+docs/00..12-*                SDLC gate artefacts (see §5), incl. ADR-0001 topology
 public/icon                  extension icons
 wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 ```
@@ -59,19 +60,20 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 |---|---|---|
 | 1 PRD Review | `docs/01-product-requirements` | pending — PRD to be authored from the research brief |
 | 2 Requirement Decomposition | `docs/01-product-requirements` | pending |
-| 3 Architecture Design | `docs/03-architecture` | **done** — `research-brief-base-stack.md` |
-| 4 Detailed Solution Design | `docs/03-architecture`, `docs/04-data-api-integration` | in progress — schema v1 in `src/lib/types.ts`; ingest API contract TBD |
+| 3 Architecture Design | `docs/03-architecture` | **done** — `research-brief-base-stack.md`, `adr-0001-lensdb-ingest-topology.md` |
+| 4 Detailed Solution Design | `docs/03-architecture`, `docs/04-data-api-integration` | **done** — schema v1 in `src/lib/types.ts`; ingest contract + LensDB schema in `services/lens-api` |
 | 5 Security/Compliance Design | `docs/05-security-privacy` | pending — Lao EDPL 2017 mapping, ToS exposure register |
 | 6 Implementation Planning | `docs/07-engineering-devsecops` | pending |
-| 7 Development | `src/` | Phase 0 scaffold complete |
-| 8 Engineering Verification | `tests/` | fixture tests in place; live-payload fixtures needed |
+| 7 Development | `src/`, `services/` | extension 0.2.0; lens-api 0.2.0 (ingest, upsert, auth) |
+| 8 Engineering Verification | `tests/` | extension: 6 vitest incl. live re-parse; lens-api: 5 pytest + live Postgres upsert check |
 | 9–14 | `docs/08..12` | not started |
 
 ## 6. Known risks / open items
 
 - Facebook GraphQL `Story` shape varies by surface (group feed vs permalink vs page); parser was written against representative shapes and must be validated against captured raw payloads from real Lao groups.
-- TikTok comment payloads (`/api/comment/list/`) are captured raw but not yet normalised (v0.2).
-- Ingest API (`POST /ingest`) is a contract sketch only; FastAPI service is not in this repo.
+- TikTok comment payloads (`/api/comment/list/`) are captured raw but not yet normalised.
+- TikTok parser still validated only on a synthetic fixture — needs a live smoke test.
+- lens-api `/mcp` adapter for MCP Hub proxying is deferred to Phase 4; auth is a static bearer token until then.
 - Side panel requires Chrome/Edge ≥ 116 (`chrome.sidePanel`).
 
 ## 7. Lessons log
@@ -80,3 +82,9 @@ Record mistakes and their fixes here so they carry forward.
 
 - 2026-09-16 — `wxt prepare` runs on `postinstall` and fails if `wxt.config.ts` is missing: write config before the first `npm install`.
 - 2026-09-16 — Fixture epoch timestamps must match the assertion year; a wrong fixture made a correct parser look broken.
+- 2026-09-16 — Live FB group feed nests engagement under `comet_sections…adaptive_ufi_action_renderers`, not on `feedback` directly; walk both subtrees. Always harden parsers against exported raw payloads, not just hand-written fixtures.
+- 2026-09-16 — Postgres refuses to run as root; integration tests spin the cluster under an unprivileged user.
+
+## 8. Server tier (services/lens-api)
+
+FastAPI ingest + PostgreSQL (LensDB) on `bizera-wsl` under Podman. `lens-db` has no published ports; `lens-api` is published on `127.0.0.1:7710` only. Dedup via SQL upsert on `platform:post_id`. See `services/lens-api/README.md` and `docs/03-architecture/adr-0001-lensdb-ingest-topology.md`. Test: `cd services/lens-api && pip install -r requirements-dev.txt && pytest -q`.
