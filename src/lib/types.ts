@@ -5,8 +5,10 @@
  * ingest API, console artifact and BST agents consume one shape.
  */
 
+import { DEFAULT_AUTORUN, type AutoRunConfig } from './autorun';
 import { DEFAULT_KEYWORD_SET, type KeywordSet } from './keywords';
 export type { KeywordSet } from './keywords';
+export type { AutoRunConfig } from './autorun';
 
 export type Platform = 'facebook' | 'tiktok';
 
@@ -130,6 +132,8 @@ export interface Settings {
   keywordSet: KeywordSet;
   /** Also parse and store comments (not just posts). */
   captureComments: boolean;
+  /** Autonomous auto-scroll pacing + caps. */
+  autoRun: AutoRunConfig;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -144,6 +148,7 @@ export const DEFAULT_SETTINGS: Settings = {
   storeMode: 'matched',
   keywordSet: DEFAULT_KEYWORD_SET,
   captureComments: true,
+  autoRun: DEFAULT_AUTORUN,
 };
 
 /* ---------- Messages: page (MAIN world) → bridge (isolated) → background ---------- */
@@ -178,7 +183,20 @@ export type RuntimeMessage =
   /** Is this normalized URL already in the frontier? */
   | { type: 'seenCheck'; url: string }
   /** Mark a URL as seen/queued/fetched in the frontier. */
-  | { type: 'seenMark'; url: string; status: SeenLink['last_status']; platform?: Platform };
+  | { type: 'seenMark'; url: string; status: SeenLink['last_status']; platform?: Platform }
+  /** Autonomous mode: start/stop auto-scroll on the active tab (from side panel). */
+  | { type: 'autoStart' }
+  | { type: 'autoStop' }
+  /** Side panel polls the background for the latest auto-run status. */
+  | { type: 'autoState' }
+  /** Progress ping from the auto-scroll content script → background. */
+  | { type: 'autoProgress'; progress: AutoProgress };
+
+export interface AutoProgress {
+  running: boolean;
+  scrolls: number;
+  reason: string | null;
+}
 
 export interface Stats {
   records: Record<Platform, number>;

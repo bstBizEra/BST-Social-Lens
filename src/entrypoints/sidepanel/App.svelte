@@ -6,6 +6,21 @@
   let settings = $state<Settings | undefined>(undefined);
   let message = $state('');
   let busy = $state(false);
+  let auto = $state<{ running: boolean; scrolls: number; reason: string | null }>({ running: false, scrolls: 0, reason: null });
+
+  const autoReason: Record<string, string> = {
+    maxScrolls: 'reached scroll cap',
+    maxMinutes: 'reached time cap',
+    endOfFeed: 'reached end of feed',
+    stopped: 'stopped',
+    'no-capture-tab': 'open a Facebook/TikTok tab first',
+  };
+
+  async function refreshAuto() {
+    auto = await send<{ running: boolean; scrolls: number; reason: string | null }>({ type: 'autoState' });
+  }
+  const startAuto = () => run('Start', () => send<{ ok: boolean; running: boolean }>({ type: 'autoStart' }), (r) => (r.running ? 'Auto-scroll started' : 'Open a Facebook or TikTok tab first'));
+  const stopAuto = () => run('Stop', () => send<{ ok: boolean }>({ type: 'autoStop' }), () => 'Auto-scroll stopped');
 
   const send = <T,>(msg: RuntimeMessage) => browser.runtime.sendMessage(msg) as Promise<T>;
 
@@ -73,8 +88,13 @@
   onMount(() => {
     refresh();
     loadSettings();
+    refreshAuto();
     const t = setInterval(refresh, 3000);
-    return () => clearInterval(t);
+    const a = setInterval(refreshAuto, 1500);
+    return () => {
+      clearInterval(t);
+      clearInterval(a);
+    };
   });
 </script>
 
@@ -99,6 +119,36 @@
   </div>
   {#if settings}
     <label class="toggle">Capture enabled <input type="checkbox" checked={settings.captureEnabled} onchange={(e) => patch({ captureEnabled: e.currentTarget.checked })} /></label>
+  {/if}
+</section>
+
+<section class="card">
+  <h2>Autonomous mode</h2>
+  <div class="muted">
+    {#if auto.running}
+      <span class="dot"></span> Running — {auto.scrolls} scrolls. Keep this tab and panel open.
+    {:else}
+      Manual by default (scroll to capture). Start auto-scroll on the current Facebook/TikTok tab.
+      {#if auto.reason && autoReason[auto.reason]}· last run: {autoReason[auto.reason]}{/if}
+    {/if}
+  </div>
+  <div class="row">
+    {#if auto.running}
+      <button class="danger" onclick={stopAuto}>Stop</button>
+    {:else}
+      <button class="primary" disabled={busy} onclick={startAuto}>Start auto-scroll</button>
+    {/if}
+  </div>
+  {#if settings}
+    <div class="row">
+      <label>Max scrolls
+        <input type="number" min="1" max="500" value={settings.autoRun.maxScrolls} onchange={(e) => settings && patch({ autoRun: { ...settings.autoRun, maxScrolls: Number(e.currentTarget.value) || 40 } })} />
+      </label>
+      <label>Max minutes
+        <input type="number" min="1" max="120" value={settings.autoRun.maxMinutes} onchange={(e) => settings && patch({ autoRun: { ...settings.autoRun, maxMinutes: Number(e.currentTarget.value) || 10 } })} />
+      </label>
+    </div>
+    <div class="muted">Human-like pacing ({(settings.autoRun.minDelayMs / 1000).toFixed(1)}–{(settings.autoRun.maxDelayMs / 1000).toFixed(1)}s between scrolls). Auto-stops at a cap or end of feed. Use a secondary account.</div>
   {/if}
 </section>
 

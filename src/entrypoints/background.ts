@@ -16,10 +16,24 @@ import { toCsv, toNdjson } from '../lib/export';
 import { matchFields } from '../lib/keywords';
 import { moduleForResponse, type ParseContext } from '../lib/modules';
 import { normalizeUrl, urlHash } from '../lib/url';
-import type { Platform, RuntimeMessage, SocialRecord, Stats } from '../lib/types';
+import type { AutoProgress, Platform, RuntimeMessage, SocialRecord, Stats } from '../lib/types';
 
 const SYNC_ALARM = 'bst-social-lens:sync';
 const PURGE_ALARM = 'bst-social-lens:purge';
+
+// Ephemeral live status of the autonomous run (source of truth is the content script).
+let lastAuto: AutoProgress = { running: false, scrolls: 0, reason: null };
+
+async function relayToActiveTab(message: unknown): Promise<boolean> {
+  const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
+  if (!tab?.id) return false;
+  try {
+    await browser.tabs.sendMessage(tab.id, message);
+    return true;
+  } catch {
+    return false; // no content script on this tab (not FB/TikTok)
+  }
+}
 
 async function sha256(input: string): Promise<string> {
   const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(input));
@@ -257,6 +271,23 @@ export default defineBackground(() => {
         }
         case 'sync':
           return syncToIngest();
+        case 'autoStart': {
+          const s = await getSettings();
+          lastAuto = { running: true, scrolls: 0, reason: null };
+          const ok = await relayToActiveTab({ type: 'autoStart', config: s.autoRun });
+          if (!ok) lastAuto = { running: false, scrolls: 0, reason: 'no-capture-tab' };
+          return { ok, running: lastAuto.running };
+        }
+        case 'autoStop': {
+          await relayToActiveTab({ type: 'autoStop' });
+          lastAuto = { ...lastAuto, running: false, reason: 'stopped' };
+          return { ok: true };
+        }
+        case 'autoState':
+          return lastAuto;
+        case 'autoProgress':
+          lastAuto = msg.progress;
+          return { ok: true };
         case 'getSettings':
           return getSettings();
         case 'setSettings': {
