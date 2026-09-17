@@ -56,6 +56,28 @@ class FakeDB:
         self.purged = retention_days
         return {"records": 0 if retention_days <= 0 else 2, "seen_links": 0 if retention_days <= 0 else 1}
 
+    async def purge_raw_bodies(self, days: int):
+        self.raw_purged = days
+        return 0 if days <= 0 else 3
+
+    raw: dict = {}
+
+    async def upsert_raw(self, captures):
+        inserted = 0
+        for c in captures:
+            if c["payload_hash"] not in self.raw:
+                inserted += 1
+                self.raw[c["payload_hash"]] = c
+        return (inserted, len(captures) - inserted)
+
+    async def provenance(self, key):
+        if key not in self.store:
+            return None
+        return {"key": key, "events": [{"payload_hash": self.store[key].get("first_payload_hash")}]}
+
+    async def provenance_coverage(self):
+        return {"records": len(self.store), "coverage": 1.0}
+
 
 def make_client() -> tuple[TestClient, FakeDB]:
     fake = FakeDB()
@@ -166,10 +188,41 @@ def test_seen_requires_token():
     assert client.post("/seen", json={"links": []}).status_code == 401
 
 
-def test_admin_purge_endpoint():
+def test_admin_purge_endpoint_runs_raw_then_records():
     c, fake = make_client()
     assert c.post("/admin/purge").status_code == 401
     r = c.post("/admin/purge", headers={"authorization": "Bearer test-token"})
     assert r.status_code == 200 and r.json()["records"] == 2 and fake.purged == main.RETENTION_DAYS
-    r = c.post("/admin/purge?days=0", headers={"authorization": "Bearer test-token"})
-    assert r.json() == {"retention_days": 0, "records": 0, "seen_links": 0}
+    assert r.json()["raw_bodies_purged"] == 3 and fake.raw_purged == main.RAW_BODY_RETENTION_DAYS
+    r = c.post("/admin/purge?days=0&raw_days=0", headers={"authorization": "Bearer test-token"})
+    assert r.json() == {"raw_retention_days": 0, "raw_bodies_purged": 0, "retention_days": 0, "records": 0, "seen_links": 0}
+
+
+def test_raw_ingest_verifies_hash_and_dedupes():
+    import hashlib
+    c, fake = make_client()
+    fake.raw = {}
+    body = '{"data":{"x":1}}'
+    h = hashlib.sha256(body.encode()).hexdigest()
+    cap = {"payload_hash": h, "url": "https://www.facebook.com/api/graphql/", "captured_at": "2026-09-17T00:00:00Z", "body": body, "platform": "facebook"}
+    H = {"authorization": "Bearer test-token"}
+    assert c.post("/raw", json={"captures": [cap]}).status_code == 401
+    r = c.post("/raw", json={"source": "bst-social-lens", "version": "0.7.0", "captures": [cap, cap]}, headers=H)
+    assert r.status_code == 200 and r.json() == {"received": 2, "inserted": 1, "duplicate": 1, "rejected": 0, "rejected_hashes": []}
+    bad = {**cap, "payload_hash": "0" * 64}
+    r = c.post("/raw", json={"captures": [bad]}, headers=H)
+    assert r.json()["rejected"] == 1 and r.json()["rejected_hashes"] == ["0" * 64] and r.json()["inserted"] == 0
+    assert fake.raw[h]["body_bytes"] == len(body) and fake.raw[h]["ext_version"] == "0.7.0"
+
+
+def test_ingest_carries_provenance_and_provenance_endpoint():
+    c, fake = make_client()
+    H = {"authorization": "Bearer test-token"}
+    rec = {**REC, "payload_hash": "a" * 64, "content_hash": "b" * 64}
+    r = c.post("/ingest", json={"records": [rec]}, headers=H)
+    assert r.status_code == 200
+    row = fake.store["facebook:123"]
+    assert row["first_payload_hash"] == "a" * 64 and row["last_payload_hash"] == "a" * 64 and row["content_hash"] == "b" * 64
+    assert c.get("/provenance/facebook:123", headers=H).json()["events"][0]["payload_hash"] == "a" * 64
+    assert c.get("/provenance/nope", headers=H).status_code == 404
+    assert c.get("/provenance", headers=H).json()["coverage"] == 1.0

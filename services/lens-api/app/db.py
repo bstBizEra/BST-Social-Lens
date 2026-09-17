@@ -21,10 +21,12 @@ INSERT INTO records (
     matched_via, url_hash, author_name, author_id, author_hash, author_url,
     text, lang, created_at, captured_at, reactions_total, reactions_breakdown,
     comments_count, shares_count, views_count, media, hashtags,
-    parser_version, ingest_source, ingest_version
+    parser_version, ingest_source, ingest_version,
+    content_hash, first_payload_hash, last_payload_hash
 ) VALUES (
     $1,$2,$3,$4,$5,$6,$7,$8,$9,$10::text[],$11,$12,$13,$14,$15,$16,$17,$18,$19,
-    $20,$21,$22,$23::jsonb,$24,$25,$26,$27::jsonb,$28::text[],$29,$30,$31
+    $20,$21,$22,$23::jsonb,$24,$25,$26,$27::jsonb,$28::text[],$29,$30,$31,
+    $32,$33,$34
 )
 ON CONFLICT (key) DO UPDATE SET
     record_type      = EXCLUDED.record_type,
@@ -55,6 +57,10 @@ ON CONFLICT (key) DO UPDATE SET
     parser_version   = COALESCE(EXCLUDED.parser_version, records.parser_version),
     ingest_source    = EXCLUDED.ingest_source,
     ingest_version   = EXCLUDED.ingest_version,
+    content_hash     = COALESCE(EXCLUDED.content_hash, records.content_hash),
+    first_payload_hash = COALESCE(records.first_payload_hash, EXCLUDED.first_payload_hash),
+    last_payload_hash  = COALESCE(EXCLUDED.last_payload_hash, records.last_payload_hash),
+    capture_count    = records.capture_count + 1,
     last_seen        = now()
 RETURNING (xmax = 0) AS inserted;
 """
@@ -67,7 +73,14 @@ _COLS = [
     "text", "lang", "created_at", "captured_at", "reactions_total", "reactions_breakdown",
     "comments_count", "shares_count", "views_count", "media", "hashtags",
     "parser_version", "ingest_source", "ingest_version",
+    "content_hash", "first_payload_hash", "last_payload_hash",
 ]
+
+_CAPTURE_EVENT = """
+INSERT INTO capture_events (record_key, payload_hash, captured_at, page_url, parser_version, ingest_source)
+VALUES ($1,$2,$3,$4,$5,$6)
+ON CONFLICT (record_key, payload_hash, captured_at) DO NOTHING
+"""
 
 
 class Database:
@@ -111,7 +124,65 @@ class Database:
                     was_insert = await con.fetchval(_UPSERT, *args)
                     if was_insert:
                         inserted += 1
+                    # Provenance: one capture event per sighting (I1), even when the row already existed.
+                    await con.execute(
+                        _CAPTURE_EVENT, row["key"], row.get("first_payload_hash"), row.get("captured_at_event") or row.get("captured_at"),
+                        row.get("page_url"), row.get("parser_version"), row.get("ingest_source"),
+                    )
         return (inserted, len(rows) - inserted)
+
+    # ---------- L0 raw captures ----------
+
+    async def upsert_raw(self, captures: list[dict[str, Any]]) -> tuple[int, int]:
+        """Insert raw payloads keyed by payload_hash. Returns (inserted, duplicate).
+        A duplicate hash never overwrites; the first capture context is the evidence."""
+        if not captures:
+            return (0, 0)
+        inserted = 0
+        async with self.pool.acquire() as con:
+            async with con.transaction():
+                for c in captures:
+                    was_insert = await con.fetchval(
+                        """
+                        INSERT INTO raw_captures (payload_hash, platform, url, method, status, source, page_url,
+                                                  captured_at, body, body_bytes, truncated, parser_version, ext_version)
+                        VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+                        ON CONFLICT (payload_hash) DO NOTHING
+                        RETURNING true
+                        """,
+                        c["payload_hash"], c.get("platform"), c["url"], c.get("method"), c.get("status"), c.get("source"),
+                        c.get("page_url"), c["captured_at"], c["body"], c.get("body_bytes") or len(c["body"].encode("utf-8")),
+                        bool(c.get("truncated")), c.get("parser_version"), c.get("ext_version"),
+                    )
+                    if was_insert:
+                        inserted += 1
+        return (inserted, len(captures) - inserted)
+
+    async def provenance(self, key: str) -> dict[str, Any] | None:
+        """L1 row → its capture events → raw captures (body presence, not body)."""
+        async with self.pool.acquire() as con:
+            rec = await con.fetchrow("SELECT key, content_hash, first_payload_hash, last_payload_hash, capture_count, protected, first_seen, last_seen FROM records WHERE key = $1", key)
+            if not rec:
+                return None
+            events = await con.fetch(
+                """SELECT e.captured_at, e.payload_hash, e.page_url, e.parser_version, e.ingest_source,
+                          (r.payload_hash IS NOT NULL) AS raw_present, (r.body IS NOT NULL) AS body_present, r.body_bytes, r.truncated
+                   FROM capture_events e LEFT JOIN raw_captures r ON r.payload_hash = e.payload_hash
+                   WHERE e.record_key = $1 ORDER BY e.captured_at""", key)
+        return {**dict(rec), "events": [dict(e) for e in events]}
+
+    async def provenance_coverage(self) -> dict[str, Any]:
+        """Phase 5 exit metric: share of L1 rows whose first payload is stored as L0."""
+        async with self.pool.acquire() as con:
+            total = await con.fetchval("SELECT count(*) FROM records")
+            with_hash = await con.fetchval("SELECT count(*) FROM records WHERE first_payload_hash IS NOT NULL")
+            resolved = await con.fetchval(
+                "SELECT count(*) FROM records r WHERE r.first_payload_hash IS NOT NULL AND EXISTS (SELECT 1 FROM raw_captures c WHERE c.payload_hash = r.first_payload_hash)")
+            raw_total = await con.fetchval("SELECT count(*) FROM raw_captures")
+            raw_with_body = await con.fetchval("SELECT count(*) FROM raw_captures WHERE body IS NOT NULL")
+        return {"records": total, "records_with_payload_hash": with_hash, "records_resolved_to_raw": resolved,
+                "coverage": round(resolved / total, 4) if total else None,
+                "raw_captures": raw_total, "raw_with_body": raw_with_body}
 
     async def record_ingest_run(
         self, source: str | None, ext_version: str | None, sent: int,
@@ -249,16 +320,28 @@ class Database:
 
     # ---------- retention ----------
 
+    async def purge_raw_bodies(self, body_retention_days: int) -> int:
+        """L0 body retention: NULL the body (keep hash + context) after N days. 0 disables."""
+        if body_retention_days <= 0:
+            return 0
+        async with self.pool.acquire() as con:
+            n = await con.fetchval(
+                "WITH u AS (UPDATE raw_captures SET body = NULL, body_purged_at = now() "
+                "WHERE body IS NOT NULL AND captured_at < now() - ($1::int * interval '1 day') RETURNING 1) SELECT count(*) FROM u",
+                body_retention_days)
+        return int(n or 0)
+
     async def purge_records(self, retention_days: int) -> dict[str, int]:
-        """Delete records (and their comments) whose post date — created_at, else captured_at —
-        is older than `retention_days`, plus frontier rows no record references any more.
-        Returns counts. A retention of 0 disables purging (returns zeros)."""
+        """L1 retention: delete records (and their comments) older than N days by post date
+        (else capture date), except `protected` rows (referenced by a published dataset, D3),
+        plus frontier rows no record references. Capture events of deleted records are kept
+        (they reference only hashes). 0 disables."""
         if retention_days <= 0:
             return {"records": 0, "seen_links": 0}
         async with self.pool.acquire() as con:
             async with con.transaction():
                 n_rec = await con.fetchval(
-                    "WITH d AS (DELETE FROM records WHERE COALESCE(created_at, captured_at) < now() - ($1::int * interval '1 day') RETURNING 1) "
+                    "WITH d AS (DELETE FROM records WHERE NOT protected AND COALESCE(created_at, captured_at) < now() - ($1::int * interval '1 day') RETURNING 1) "
                     "SELECT count(*) FROM d", retention_days)
                 n_seen = await con.fetchval(
                     "WITH d AS (DELETE FROM seen_links s WHERE s.updated_at < now() - ($1::int * interval '1 day') "

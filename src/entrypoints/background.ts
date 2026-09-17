@@ -16,6 +16,7 @@ import { toCsv, toNdjson } from '../lib/export';
 import { matchFields } from '../lib/keywords';
 import { moduleForResponse, type ParseContext } from '../lib/modules';
 import { normalizeUrl, urlHash } from '../lib/url';
+import { contentHashInput, planRawBatch } from '../lib/provenance';
 import type { AutoProgress, Platform, RuntimeMessage, SocialRecord, Stats } from '../lib/types';
 
 const SYNC_ALARM = 'bst-social-lens:sync';
@@ -103,6 +104,10 @@ async function handleCapture(payload: Extract<RuntimeMessage, { type: 'capture' 
   const toStore: SocialRecord[] =
     settings.storeMode === 'all' ? records : records.filter((r) => r.match_score > 0);
 
+  // L0 identity: hash of the body as stored (after truncation) — the server verifies the same hash.
+  const storedBody = payload.body.slice(0, settings.maxRawBytes);
+  const truncated = storedBody.length < payload.body.length;
+  const payload_hash = await sha256(storedBody);
   let raw_ref: number | undefined;
   if (settings.keepRawPayloads) {
     raw_ref = await db.raw.add({
@@ -113,12 +118,20 @@ async function handleCapture(payload: Extract<RuntimeMessage, { type: 'capture' 
       source: payload.kind,
       page_url: payload.page_url,
       captured_at,
-      body: payload.body.slice(0, settings.maxRawBytes),
+      body: storedBody,
       parsed_count: parsed,
       parse_error,
+      payload_hash,
+      truncated,
+      synced: 0,
     });
   }
 
+  // Provenance on every record: which payload it came from, and a content hash.
+  for (const r of toStore) {
+    r.payload_hash = payload_hash;
+    r.content_hash = await sha256(contentHashInput(r));
+  }
   const stored = await upsertRecords(toStore.map((r) => ({ ...r, raw_ref })));
 
   // Record permalinks in the seen frontier so they aren't re-opened later.
@@ -143,7 +156,7 @@ async function handleCapture(payload: Extract<RuntimeMessage, { type: 'capture' 
 }
 
 async function stats(): Promise<Stats> {
-  const [fb, tt, comments, matched, seen, raw, unsynced, settings, last] = await Promise.all([
+  const [fb, tt, comments, matched, seen, raw, unsynced, settings, last, rawUnsynced] = await Promise.all([
     db.records.where('platform').equals('facebook').count(),
     db.records.where('platform').equals('tiktok').count(),
     db.records.where('record_type').equals('comment').count(),
@@ -153,6 +166,7 @@ async function stats(): Promise<Stats> {
     db.records.where('synced').equals(0).count(),
     getSettings(),
     db.records.orderBy('captured_at').last(),
+    db.raw.where('synced').equals(0).count(),
   ]);
   return {
     records: { facebook: fb, tiktok: tt },
@@ -161,6 +175,7 @@ async function stats(): Promise<Stats> {
     seen,
     raw,
     unsynced,
+    rawUnsynced,
     captureEnabled: settings.captureEnabled,
     storeMode: settings.storeMode,
     lastCapture: last?.captured_at,
@@ -200,19 +215,59 @@ async function syncToIngest() {
   const settings = await getSettings();
   if (!settings.ingestUrl) return { pushed: 0, error: 'no ingest url' };
   const batch = await db.records.where('synced').equals(0).limit(500).toArray();
-  if (batch.length === 0) return { pushed: 0 };
+  const headers = { 'content-type': 'application/json', ...(settings.ingestToken ? { authorization: `Bearer ${settings.ingestToken}` } : {}) };
+  if (batch.length === 0) {
+    // Records are clear; raw evidence may still be pending (e.g. sendRaw was just enabled).
+    try {
+      const raw = settings.sendRaw ? await syncRaw(settings, headers) : { pushedRaw: 0 };
+      return { pushed: 0, ...raw };
+    } catch (e) {
+      return { pushed: 0, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
   try {
     const res = await fetch(settings.ingestUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(settings.ingestToken ? { authorization: `Bearer ${settings.ingestToken}` } : {}) },
+      headers,
       body: JSON.stringify({ source: 'bst-social-lens', version: browser.runtime.getManifest().version, records: batch }),
     });
     if (!res.ok) return { pushed: 0, error: `HTTP ${res.status}` };
     await db.records.bulkPut(batch.map((r) => ({ ...r, synced: 1 as const })));
-    return { pushed: batch.length };
+    const raw = settings.sendRaw ? await syncRaw(settings, headers) : { pushedRaw: 0 };
+    return { pushed: batch.length, ...raw };
   } catch (e) {
     return { pushed: 0, error: e instanceof Error ? e.message : String(e) };
   }
+}
+
+const RAW_BATCH_MAX_BYTES = 4_000_000;
+const RAW_BATCH_MAX_COUNT = 25;
+
+/** Phase 5: push unsynced raw payloads to POST /raw (same origin as the ingest URL). */
+async function syncRaw(settings: Awaited<ReturnType<typeof getSettings>>, headers: Record<string, string>) {
+  const pending = await db.raw.where('synced').equals(0).limit(200).toArray();
+  if (pending.length === 0) return { pushedRaw: 0 };
+  const plan = planRawBatch(pending.filter((r) => r.payload_hash), RAW_BATCH_MAX_BYTES, RAW_BATCH_MAX_COUNT);
+  if (plan.skippedTooLarge.length) await db.raw.bulkPut(plan.skippedTooLarge.map((r) => ({ ...r, synced: 2 as const })));
+  if (plan.rows.length === 0) return { pushedRaw: 0 };
+  const rawUrl = new URL('/raw', settings.ingestUrl).toString();
+  const res = await fetch(rawUrl, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      source: 'bst-social-lens',
+      version: browser.runtime.getManifest().version,
+      captures: plan.rows.map((r) => ({
+        payload_hash: r.payload_hash, platform: r.platform === 'unknown' ? null : r.platform, url: r.url, method: r.method, status: r.status,
+        source: r.source, page_url: r.page_url, captured_at: r.captured_at, body: r.body, truncated: !!r.truncated,
+      })),
+    }),
+  });
+  if (!res.ok) return { pushedRaw: 0, rawError: `HTTP ${res.status}` };
+  const result = (await res.json()) as { rejected_hashes?: string[] };
+  const rejected = new Set(result.rejected_hashes ?? []);
+  await db.raw.bulkPut(plan.rows.map((r) => ({ ...r, synced: (rejected.has(r.payload_hash!) ? 2 : 1) as 1 | 2 })));
+  return { pushedRaw: plan.rows.length - rejected.size, rawRejected: rejected.size };
 }
 
 export default defineBackground(() => {

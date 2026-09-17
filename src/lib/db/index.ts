@@ -42,6 +42,14 @@ export class SocialLensDB extends Dexie {
       settings: 'id',
       seen: 'url_hash, platform, last_status, synced',
     });
+    // v3 (Phase 5): raw payloads carry payload_hash + synced so they can be pushed to POST /raw.
+    this.version(3).stores({
+      records: 'key, platform, record_type, container_id, parent_post_id, created_at, captured_at, synced, match_score',
+      raw: '++id, platform, captured_at, synced, payload_hash',
+      runs: '++id, platform, started_at',
+      settings: 'id',
+      seen: 'url_hash, platform, last_status, synced',
+    }).upgrade((tx) => tx.table('raw').toCollection().modify((r: { synced?: number }) => { if (r.synced === undefined) r.synced = 0; }));
   }
 }
 

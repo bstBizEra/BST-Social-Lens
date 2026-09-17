@@ -73,6 +73,10 @@ export interface SocialRecord {
   url_hash?: string;
   /** Id of the RawPayload row this was derived from. */
   raw_ref?: number;
+  /** SHA-256 of the raw payload body this record was parsed from (L0 link, Phase 5). */
+  payload_hash?: string;
+  /** SHA-256 of the record's content fields (text, dates, permalink, media, hashtags, author_hash). */
+  content_hash?: string;
   /** Synced to the ingest API? */
   synced: 0 | 1;
 }
@@ -105,6 +109,12 @@ export interface RawPayload {
   body: string;
   parsed_count: number;
   parse_error?: string;
+  /** SHA-256 of `body` as stored (after any truncation) — the L0 identity. */
+  payload_hash?: string;
+  /** Body was cut to `maxRawBytes`. */
+  truncated?: boolean;
+  /** Pushed to POST /raw? (0 = no, 1 = yes, 2 = rejected/too large — do not retry). */
+  synced?: 0 | 1 | 2;
 }
 
 export interface CaptureRun {
@@ -134,6 +144,8 @@ export interface Settings {
   captureComments: boolean;
   /** Autonomous auto-scroll pacing + caps. */
   autoRun: AutoRunConfig;
+  /** Phase 5: push raw payloads (L0 evidence) to the server alongside records. */
+  sendRaw: boolean;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -149,6 +161,7 @@ export const DEFAULT_SETTINGS: Settings = {
   keywordSet: DEFAULT_KEYWORD_SET,
   captureComments: true,
   autoRun: DEFAULT_AUTORUN,
+  sendRaw: true,
 };
 
 /* ---------- Messages: page (MAIN world) → bridge (isolated) → background ---------- */
@@ -205,6 +218,7 @@ export interface Stats {
   seen: number;
   raw: number;
   unsynced: number;
+  rawUnsynced: number;
   lastCapture?: string;
   captureEnabled: boolean;
   storeMode: Settings['storeMode'];

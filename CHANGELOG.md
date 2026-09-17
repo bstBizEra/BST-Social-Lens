@@ -6,6 +6,8 @@ All notable changes to BST Social Lens are documented here. Format loosely follo
 ## [Unreleased]
 
 ### Added
+- **Phase 5 — Capture & Provenance (SLL-PROP-DATA-001B, ADR-0005).** L0 now lives on the server: `POST /raw` stores raw payloads keyed by SHA-256 (server-verified, size-capped, duplicates counted not overwritten); every `/ingest` record produces a `capture_events` row; records gain `content_hash`, `first_payload_hash` (immutable), `last_payload_hash`, `capture_count`, `protected`. `GET /provenance/{key}` and `GET /provenance` (coverage metric). Retention is now ordered: raw **bodies** null after `LENS_RAW_RETENTION_DAYS` (90; hash + context kept), records after `LENS_RECORD_RETENTION_DAYS` (730) unless `protected`; `/admin/purge?raw_days=&days=`. lens-api → 0.5.0.
+- Extension **0.7.0**: `payload_hash` + `content_hash` on every record; Dexie v3 (`raw.synced`, `payload_hash`, `truncated`); `sendRaw` setting (default on) pushes raw evidence after each sync in ≤ 25-row / ≤ 4 MB batches (`src/lib/provenance.ts`, tested); panel toggle + raw-unsynced count.
 - **lens-api — retention purge**: `LENS_RETENTION_DAYS` (default 730, 0 = off) deletes records older than N days by post date (else capture date) plus orphaned frontier rows; runs at startup + daily; `POST /admin/purge?days=N` runs it on demand.
 - **lens-api 0.4.0 — MCP adapter** (`POST /mcp`, ADR-0004 Phase 4 item): Model Context Protocol over Streamable HTTP with read-only tools `search_records`, `get_record`, `get_stats`, `top_containers`, `list_seen`; bearer-token gated; dependency-free JSON-RPC dispatcher (`app/mcp.py`); 5 pytest + live smoke script (`mcp-smoke.sh`). Lets BST agents query Social Lens through MCP Hub / Claude Code.
 
