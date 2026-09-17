@@ -23,7 +23,7 @@ const SYNC_ALARM = 'bst-social-lens:sync';
 const PURGE_ALARM = 'bst-social-lens:purge';
 
 // Ephemeral live status of the autonomous run (source of truth is the content script).
-let lastAuto: AutoProgress = { running: false, scrolls: 0, reason: null };
+let lastAuto: AutoProgress = { running: false, scrolls: 0, clicks: 0, reason: null };
 
 async function relayToActiveTab(message: unknown): Promise<boolean> {
   const [tab] = await browser.tabs.query({ active: true, currentWindow: true });
@@ -216,10 +216,15 @@ async function syncToIngest() {
   const batch = await db.records.where('synced').equals(0).limit(500).toArray();
   const headers = { 'content-type': 'application/json', ...(settings.ingestToken ? { authorization: `Bearer ${settings.ingestToken}` } : {}) };
   if (batch.length === 0) {
-    // Records are clear; raw evidence may still be pending (e.g. sendRaw was just enabled).
+    // Nothing to push — verify URL + token against the server so "Sync now" is a real connection test,
+    // then push any pending raw evidence (e.g. sendRaw was just enabled).
     try {
+      const statsUrl = new URL('/stats', settings.ingestUrl).toString();
+      const res = await fetch(statsUrl, { headers });
+      if (!res.ok) return { pushed: 0, error: `HTTP ${res.status}${res.status === 401 ? ' (token rejected)' : ''}` };
+      const st = (await res.json()) as { total?: number };
       const raw = settings.sendRaw ? await syncRaw(settings, headers) : { pushedRaw: 0, rawNote: 'sendRaw off' };
-      return { pushed: 0, ...raw };
+      return { pushed: 0, serverTotal: st.total ?? 0, ...raw };
     } catch (e) {
       return { pushed: 0, error: e instanceof Error ? e.message : String(e) };
     }
@@ -343,9 +348,9 @@ export default defineBackground(() => {
         }
         case 'autoStart': {
           const s = await getSettings();
-          lastAuto = { running: true, scrolls: 0, reason: null };
-          const ok = await relayToActiveTab({ type: 'autoStart', config: s.autoRun });
-          if (!ok) lastAuto = { running: false, scrolls: 0, reason: 'no-capture-tab' };
+          lastAuto = { running: true, scrolls: 0, clicks: 0, reason: null };
+          const ok = await relayToActiveTab({ type: 'autoStart', config: s.autoRun, assist: s.assist });
+          if (!ok) lastAuto = { running: false, scrolls: 0, clicks: 0, reason: 'no-capture-tab' };
           return { ok, running: lastAuto.running };
         }
         case 'autoStop': {

@@ -6,7 +6,7 @@
   let settings = $state<Settings | undefined>(undefined);
   let message = $state('');
   let busy = $state(false);
-  let auto = $state<{ running: boolean; scrolls: number; reason: string | null }>({ running: false, scrolls: 0, reason: null });
+  let auto = $state<{ running: boolean; scrolls: number; clicks: number; reason: string | null }>({ running: false, scrolls: 0, clicks: 0, reason: null });
 
   const autoReason: Record<string, string> = {
     maxScrolls: 'reached scroll cap',
@@ -14,10 +14,11 @@
     endOfFeed: 'reached end of feed',
     stopped: 'stopped',
     'no-capture-tab': 'open a Facebook/TikTok tab first',
+    navigated: 'stopped — page changed',
   };
 
   async function refreshAuto() {
-    auto = await send<{ running: boolean; scrolls: number; reason: string | null }>({ type: 'autoState' });
+    auto = await send<{ running: boolean; scrolls: number; clicks: number; reason: string | null }>({ type: 'autoState' });
   }
   const startAuto = () => run('Start', () => send<{ ok: boolean; running: boolean }>({ type: 'autoStart' }), (r) => (r.running ? 'Auto-scroll started' : 'Open a Facebook or TikTok tab first'));
   const stopAuto = () => run('Stop', () => send<{ ok: boolean }>({ type: 'autoStop' }), () => 'Auto-scroll stopped');
@@ -57,7 +58,7 @@
   const exportRaw = (platform?: Platform) =>
     run('Export raw', () => send<{ count: number; filename: string }>({ type: 'exportRaw', platform }), (r) => `Saved ${r.count} raw payloads → ${r.filename}`);
 
-  type SyncResult = { pushed: number; error?: string; pushedRaw?: number; rawRejected?: number; rawSkipped?: number; rawRemaining?: number; rawError?: string; rawNote?: string };
+  type SyncResult = { pushed: number; error?: string; serverTotal?: number; pushedRaw?: number; rawRejected?: number; rawSkipped?: number; rawRemaining?: number; rawError?: string; rawNote?: string };
   function fmtSync(r: SyncResult) {
     if (r.error) return `Sync error: ${r.error}`;
     const raw = r.rawError
@@ -65,7 +66,8 @@
       : r.rawNote
         ? `raw: ${r.rawNote}`
         : `raw: ${r.pushedRaw ?? 0} pushed${r.rawRejected ? `, ${r.rawRejected} rejected` : ''}${r.rawSkipped ? `, ${r.rawSkipped} too large` : ''}${r.rawRemaining ? `, ${r.rawRemaining} pending` : ''}`;
-    return `Pushed ${r.pushed} records · ${raw}`;
+    const head = r.pushed === 0 && r.serverTotal !== undefined ? `Connected — nothing to push (server holds ${r.serverTotal} records)` : `Pushed ${r.pushed} records`;
+    return `${head} · ${raw}`;
   }
   const sync = () => run('Sync', () => send<SyncResult>({ type: 'sync' }), fmtSync);
 
@@ -151,7 +153,7 @@
   <h2>Autonomous mode</h2>
   <div class="muted">
     {#if auto.running}
-      <span class="dot"></span> Running — {auto.scrolls} scrolls. Keep this tab and panel open.
+      <span class="dot"></span> Running — {auto.scrolls} scrolls{#if settings?.assist.enabled} · {auto.clicks} threads expanded{/if}. Keep this tab and panel open.
     {:else}
       Manual by default (scroll to capture). Start auto-scroll on the current Facebook/TikTok tab.
       {#if auto.reason && autoReason[auto.reason]}· last run: {autoReason[auto.reason]}{/if}
@@ -174,6 +176,23 @@
       </label>
     </div>
     <div class="muted">Human-like pacing ({(settings.autoRun.minDelayMs / 1000).toFixed(1)}–{(settings.autoRun.maxDelayMs / 1000).toFixed(1)}s between scrolls). Auto-stops at a cap or end of feed. Use a secondary account.</div>
+    <label class="toggle">Expand comment threads (assisted)
+      <input type="checkbox" checked={settings.assist.enabled} onchange={(e) => settings && patch({ assist: { ...settings.assist, enabled: e.currentTarget.checked } })} />
+    </label>
+    {#if settings.assist.enabled}
+      <div class="row">
+        <label>Max expands / run
+          <input type="number" min="1" max="200" value={settings.assist.maxClicks} onchange={(e) => settings && patch({ assist: { ...settings.assist, maxClicks: Number(e.currentTarget.value) || 30 } })} />
+        </label>
+        <label>Per scroll
+          <input type="number" min="1" max="10" value={settings.assist.clicksPerRound} onchange={(e) => settings && patch({ assist: { ...settings.assist, clicksPerRound: Number(e.currentTarget.value) || 3 } })} />
+        </label>
+      </div>
+      <label class="toggle">Also expand "See more" text
+        <input type="checkbox" checked={settings.assist.expandText} onchange={(e) => settings && patch({ assist: { ...settings.assist, expandText: e.currentTarget.checked } })} />
+      </label>
+      <div class="muted">Clicks only in-page "View more comments" / "View replies" / "See more" controls (English, Lao, Thai) with {(settings.assist.minDelayMs / 1000).toFixed(1)}–{(settings.assist.maxDelayMs / 1000).toFixed(1)}s pacing. Never opens links or leaves the page; stops if the page changes.</div>
+    {/if}
   {/if}
 </section>
 
@@ -181,7 +200,7 @@
   <h2>Keywords &amp; filtering</h2>
   {#if settings}
     <label>Include terms (comma or newline separated)
-      <input type="text" value={includeText} oninput={(e) => (includeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="ດິນ, ຂາຍ, ເຊົ່າ, ລາຄາ, ບ້ານ, ເມືອງ, ແຂວງ" />
+      <input type="text" value={includeText} oninput={(e) => (includeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="ດິນ, ຂາຍ, ເຊົ່າ, ລາຄາ, ເນື້ອທີ່, ບ້ານ, ເມືອງ, ແຂວງ, location, google map, lat, long" />
     </label>
     <label>Exclude terms
       <input type="text" value={excludeText} oninput={(e) => (excludeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="(optional)" />
