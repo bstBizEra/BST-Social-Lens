@@ -1,7 +1,7 @@
 # SLL-PROP-DATA-001F — Canonical Database Design v0.1 (draft)
 
 - Parent: `SLL-PROP-DATA-001` (frozen) · Boundary: `001A` (frozen) · Contracts realised: `001B` (frozen), `001C`/`001D`/`001E` (draft for freeze)
-- Status: **Draft** (2026-09-17). Per ADR-0005 §2.4 the first *full* L2/L3 DDL waits for 001C–001E to freeze; this draft fixes the physical design now so freezes do not stall on schema work. `schema_extract.sql` and `schema_geo.sql` are applied today; `schema_market.sql` is **written, linted and validated but not applied** (absent from `db.L2_SCHEMA_PATHS`).
+- Status: **Draft** (2026-09-17). Per ADR-0005 §2.4 the first *full* L2/L3 DDL waits for 001C–001E to freeze; this draft fixes the physical design now so freezes do not stall on schema work. `schema_extract.sql` and `schema_geo.sql` are applied today; `schema_market.sql` is **written, linted and validated; not applied by default** (absent from `db.L2_SCHEMA_PATHS`) — applied at startup only when `LENS_RESOLUTION_ENABLED=1` (`db.enable_market`), which is how the 001E wiring is exercised on disposable databases before the freeze.
 - Sequencing: freeze 001C+001D (golden gates) → apply nothing new; freeze 001E (reviewed sample) → add `schema_market.sql` to `L2_SCHEMA_PATHS` → 001F v1.0 frozen.
 
 ## 1. Principles (physical consequences of 001A)
