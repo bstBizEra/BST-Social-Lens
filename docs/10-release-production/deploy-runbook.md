@@ -172,9 +172,28 @@ Verify: the card shows **BST Social Lens 0.4.0**, no errors. Pin it to the toolb
 
 1. Open a Facebook group or TikTok page, then open the side panel (toolbar icon).
 2. **BST Ingest API** section: Ingest URL `http://localhost:7710/ingest`, Bearer token = your `LENS_API_TOKEN`.
-3. Turn on **Auto-sync every 5 min** (or use **Sync now**).
+3. If the panel shows **Grant access** under the Ingest URL (0.7.1+), click it and accept the browser prompt — the
+   ingest origin is an *optional* host permission; without it the background fetch is cross-origin and fails with
+   "Failed to fetch". Older builds cannot ask: add the extension's origin to `LENS_CORS_ORIGINS` instead
+   (`chrome-extension://<id>` from `edge://extensions` → Details; comma-separated) and restart lens-api.
+4. Turn on **Auto-sync every 5 min** and **Send raw evidence (L0) with sync** (or use **Sync now**). The status line
+   reports both parts: `Pushed N records · raw: M pushed[, K rejected][, J too large][, P pending]`.
 
-Verify: after a capture, `curl -s -H "authorization: Bearer $LENS_API_TOKEN" http://localhost:7710/stats` shows non-zero `total`.
+Verify: after a capture, `curl -s -H "authorization: Bearer $LENS_API_TOKEN" http://localhost:7710/stats` shows non-zero
+`total`, and `/provenance` shows `coverage` climbing towards 1.0 as raw batches (25 per sync) land.
+
+### 4a. Windows ↔ WSL reachability (mirrored networking) — first-run checks
+
+Observed 2026-09-17 with WSL 2.6 and `networkingMode=mirrored`; each one alone produces "Failed to fetch" in the panel.
+
+| Fault | Symptom | Fix |
+|---|---|---|
+| WSL VM idles out | `wsl -d bizera-wsl -- uptime` says `up 0 min` every time; `bst-lens-api` is "active" only while a shell is attached | `~/.wslconfig` `[wsl2] vmIdleTimeout=-1` (needs one `wsl --shutdown`) **and** a logon task that keeps a session open: `wsl.exe -d bizera-wsl --exec sleep infinity` (registered as `BST-WSL-KeepAlive`, hidden) |
+| Hyper-V firewall blocks loopback | `Invoke-WebRequest http://localhost:7710/health` from Windows times out although `curl` inside WSL works | elevated PowerShell: `Set-NetFirewallHyperVVMSetting -Name '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -LoopbackEnabled True` and `New-NetFirewallHyperVRule -Name 'BST-lens-api-7710' -DisplayName 'BST Social Lens lens-api' -Direction Inbound -VMCreatorId '{40E0AC32-46A5-438A-A0B2-2B479E8F2E90}' -Protocol TCP -LocalPorts 7710 -Action Allow` |
+| CORS preflight | `journalctl -u bst-lens-api` shows `OPTIONS /ingest 405` on every sync | grant the host permission (step 3) or add the extension origin to `LENS_CORS_ORIGINS` |
+
+Note: reachability tests run through a sandboxed tool shell (e.g. Desktop Commander) can time out even when the
+browser reaches the service — trust the browser, the operator's own PowerShell, and the service journal.
 
 ---
 
@@ -233,7 +252,8 @@ Raw payloads auto-purge after `rawRetentionDays` (default 30) in the extension s
 |---|---|
 | Records stay 0 while scrolling | Store mode is `matched` and nothing matched — widen keywords or switch to `all`. Confirm the on-page badge shows payloads climbing. |
 | Badge shows payloads but 0 records | Keyword mismatch (expected) or a parser gap — side panel → **Raw payloads (NDJSON)** export and send it for a parser fix. |
-| Sync error in side panel | Wrong ingest URL/token, or lens-api down — `curl /health`. |
+| Sync error in side panel | Wrong ingest URL/token, lens-api down (`curl /health` inside WSL), WSL idled out, Hyper-V loopback, or the host permission not granted — §4a. |
+| Records sync but `/provenance` coverage stays near 0 | Raw push not running or rejected: check the panel's `raw:` part of the sync line (0.7.1+); `sendRaw` off, payloads over the batch cap, or bodies over `LENS_RAW_MAX_BYTES` (bytes — the client truncates by bytes since 0.7.1). |
 | `/health` `db:false` | `lens-db` unhealthy — `podman compose logs lens-db`. Container-free mode: `sudo service postgresql status`, and check `LENS_DB_DSN`. |
 | `podman compose up` fails at build/network (`/dev/net/tun`, netavark iptables, `modprobe tun`) | WSL kernel lacks `tun`/`ip_tables` — see `evidence/2026-09-16-podman-networking.md`; use §2a until the kernel/modules are repaired. |
 | Console empty at localhost:7710 | Token mismatch, or `LENS_CONSOLE_DIR` missing in the image — rebuild with the repo-root build context. |

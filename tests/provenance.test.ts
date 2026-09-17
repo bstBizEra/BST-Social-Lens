@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contentHashInput, planRawBatch, utf8Length } from '../src/lib/provenance';
+import { contentHashInput, planRawBatch, truncateUtf8, utf8Length } from '../src/lib/provenance';
 
 describe('contentHashInput', () => {
   const base = { platform: 'facebook' as const, post_id: '1', record_type: 'post' as const, text: 'ຂາຍດິນ', created_at: '2026-09-17T00:00:00Z', permalink: 'https://www.facebook.com/groups/1/posts/1/', media: [{ kind: 'image' as const, url: 'https://x/a.jpg' }], hashtags: ['ດິນ'], author_hash: 'h' };
@@ -31,5 +31,29 @@ describe('planRawBatch', () => {
     expect(utf8Length('ດິນ')).toBe(9);
     expect(utf8Length('a😀')).toBe(5);
     expect(planRawBatch([{ id: 1, body: 'ດິນ' }], 8, 5).skippedTooLarge).toHaveLength(1);
+  });
+});
+
+describe('truncateUtf8', () => {
+  it('leaves short bodies alone', () => {
+    expect(truncateUtf8('abc', 10)).toEqual({ text: 'abc', truncated: false });
+  });
+  it('cuts by UTF-8 bytes, not characters (Lao is 3 bytes/char)', () => {
+    const lao = 'ຂາຍດິນ'; // 6 chars, 18 bytes
+    const r = truncateUtf8(lao, 7);
+    expect(r.truncated).toBe(true);
+    expect(r.text).toBe('ຂາ'); // 2 chars = 6 bytes; a third would make 9 > 7
+    expect(utf8Length(r.text)).toBeLessThanOrEqual(7);
+  });
+  it('never splits a surrogate pair', () => {
+    const r = truncateUtf8('a😀b', 4); // 'a' (1) + emoji (4) = 5 > 4 → cut before the emoji
+    expect(r.text).toBe('a');
+    expect(utf8Length(r.text)).toBeLessThanOrEqual(4);
+  });
+  it('the truncated text is exactly what gets hashed and sent (byte cap == server cap)', () => {
+    const body = 'ລາຄາ 2.5 ຕື້ '.repeat(1000);
+    const r = truncateUtf8(body, 2000);
+    expect(utf8Length(r.text)).toBeLessThanOrEqual(2000);
+    expect(utf8Length(r.text)).toBeGreaterThan(1990);
   });
 });

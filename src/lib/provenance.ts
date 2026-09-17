@@ -50,6 +50,25 @@ export function planRawBatch<T extends Pick<RawPayload, 'id' | 'body'>>(rows: T[
   return { rows: out, bytes, skippedTooLarge };
 }
 
+/**
+ * Cut `s` so that its UTF-8 encoding is at most `maxBytes`, never splitting a surrogate pair.
+ * The server enforces its raw cap in BYTES; a character cap over-shoots for Lao/Thai text (3 bytes/char).
+ */
+export function truncateUtf8(s: string, maxBytes: number): { text: string; truncated: boolean } {
+  if (utf8Length(s) <= maxBytes) return { text: s, truncated: false };
+  let n = 0;
+  let i = 0;
+  while (i < s.length) {
+    const c = s.charCodeAt(i);
+    const pair = c >= 0xd800 && c <= 0xdbff && i + 1 < s.length;
+    const b = c < 0x80 ? 1 : c < 0x800 ? 2 : pair ? 4 : 3;
+    if (n + b > maxBytes) break;
+    n += b;
+    i += pair ? 2 : 1;
+  }
+  return { text: s.slice(0, i), truncated: true };
+}
+
 /** UTF-8 byte length without allocating a Buffer (works in SW and Node). */
 export function utf8Length(s: string): number {
   let n = 0;

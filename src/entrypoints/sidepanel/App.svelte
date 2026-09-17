@@ -57,7 +57,32 @@
   const exportRaw = (platform?: Platform) =>
     run('Export raw', () => send<{ count: number; filename: string }>({ type: 'exportRaw', platform }), (r) => `Saved ${r.count} raw payloads → ${r.filename}`);
 
-  const sync = () => run('Sync', () => send<{ pushed: number; error?: string }>({ type: 'sync' }), (r) => (r.error ? `Sync error: ${r.error}` : `Pushed ${r.pushed} records`));
+  type SyncResult = { pushed: number; error?: string; pushedRaw?: number; rawRejected?: number; rawSkipped?: number; rawRemaining?: number; rawError?: string; rawNote?: string };
+  function fmtSync(r: SyncResult) {
+    if (r.error) return `Sync error: ${r.error}`;
+    const raw = r.rawError
+      ? `raw: error ${r.rawError}`
+      : r.rawNote
+        ? `raw: ${r.rawNote}`
+        : `raw: ${r.pushedRaw ?? 0} pushed${r.rawRejected ? `, ${r.rawRejected} rejected` : ''}${r.rawSkipped ? `, ${r.rawSkipped} too large` : ''}${r.rawRemaining ? `, ${r.rawRemaining} pending` : ''}`;
+    return `Pushed ${r.pushed} records · ${raw}`;
+  }
+  const sync = () => run('Sync', () => send<SyncResult>({ type: 'sync' }), fmtSync);
+
+  // Host permission for the ingest origin (optional_host_permissions): checked on load, requested on click.
+  let hostGranted = $state<boolean | undefined>(undefined);
+  async function checkHost() {
+    try {
+      hostGranted = (await send<{ granted: boolean }>({ type: 'hostPermission', request: false })).granted;
+    } catch {
+      hostGranted = undefined;
+    }
+  }
+  const grantHost = () =>
+    run('Grant access', () => send<{ granted: boolean; origin?: string; error?: string }>({ type: 'hostPermission', request: true }), (r) => {
+      hostGranted = r.granted;
+      return r.granted ? `Access granted for ${r.origin}` : (r.error ?? 'Access not granted');
+    });
 
   const clear = (what: 'records' | 'raw' | 'seen' | 'all') => {
     if (!confirm(`Clear ${what}? This cannot be undone.`)) return;
@@ -87,7 +112,7 @@
 
   onMount(() => {
     refresh();
-    loadSettings();
+    loadSettings().then(checkHost);
     refreshAuto();
     const t = setInterval(refresh, 3000);
     const a = setInterval(refreshAuto, 1500);
@@ -189,7 +214,10 @@
 <section class="card">
   <h2>BST Ingest API</h2>
   {#if settings}
-    <label>Ingest URL <input type="url" value={settings.ingestUrl} onchange={(e) => patch({ ingestUrl: e.currentTarget.value })} placeholder="http://localhost:7710/ingest" /></label>
+    <label>Ingest URL <input type="url" value={settings.ingestUrl} onchange={(e) => { patch({ ingestUrl: e.currentTarget.value }).then(checkHost); }} placeholder="http://localhost:7710/ingest" /></label>
+    {#if hostGranted === false}
+      <div class="row"><span class="muted">The browser has not granted this extension access to the ingest server yet — sync fails with "Failed to fetch" until it does.</span> <button disabled={busy} onclick={grantHost}>Grant access</button></div>
+    {/if}
     <label>Bearer token <input type="password" value={settings.ingestToken} onchange={(e) => patch({ ingestToken: e.currentTarget.value })} /></label>
     <label class="toggle">Auto-sync every 5 min <input type="checkbox" checked={settings.autoSync} onchange={(e) => patch({ autoSync: e.currentTarget.checked })} /></label>
     <label class="toggle">Send raw evidence (L0) with sync <input type="checkbox" checked={settings.sendRaw} onchange={(e) => patch({ sendRaw: e.currentTarget.checked })} /></label>

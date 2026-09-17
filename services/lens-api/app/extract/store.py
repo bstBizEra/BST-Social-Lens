@@ -182,11 +182,12 @@ class ExtractStore:
             by_asset = await con.fetch("SELECT asset_type, count(*) AS n FROM extract.current_observations GROUP BY 1 ORDER BY 2 DESC")
             totals = await con.fetchrow(
                 """SELECT (SELECT count(*) FROM extract.current_observations) AS observations,
-                          (SELECT count(*) FROM extract.claims) AS claims,
+                          (SELECT count(*) FROM extract.claims c JOIN extract.current_observations o USING (observation_id)) AS claims,
                           (SELECT count(*) FROM extract.claims WHERE confidence IS NULL) AS claims_without_confidence,
-                          (SELECT count(*) FROM extract.claims WHERE review_status = 'LOW_CONFIDENCE') AS low_confidence_claims,
-                          (SELECT count(*) FROM extract.price_observations) AS price_observations,
-                          (SELECT count(*) FROM extract.price_observations WHERE amount_lak IS NULL) AS price_observations_no_fx,
+                          (SELECT count(*) FROM extract.claims c JOIN extract.current_observations o USING (observation_id) WHERE c.review_status = 'LOW_CONFIDENCE') AS low_confidence_claims,
+                          (SELECT count(*) FROM extract.price_observations p JOIN extract.current_observations o USING (observation_id)) AS price_observations,
+                          (SELECT count(*) FROM extract.price_observations p JOIN extract.current_observations o USING (observation_id) WHERE p.amount_lak IS NULL) AS price_observations_no_fx,
+                          (SELECT count(*) FROM extract.observations) AS observations_all_runs,
                           (SELECT count(*) FROM extract.contact_points) AS contact_points,
                           (SELECT count(*) FROM records) AS records,
                           (SELECT count(*) FROM records r WHERE NOT EXISTS (SELECT 1 FROM extract.current_observations o WHERE o.record_key = r.key)) AS records_unobserved"""
