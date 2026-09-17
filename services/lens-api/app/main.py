@@ -13,11 +13,18 @@ Endpoints
   GET  /stats            per-platform counts (bearer auth)
   POST /mcp              Model Context Protocol (Streamable HTTP, read-only tools; bearer auth)
   POST /admin/purge      run the retention purge now (bearer auth); also runs daily in-process
+  POST /admin/extract    run RULE_V1 extraction now (bearer auth); also runs every LENS_EXTRACT_INTERVAL_MIN — Phase 6 (001C)
+  GET  /observations     current L2 observations, filterable (bearer auth)
+  GET  /observations/{key}  current observation + claims (+ history with ?all=1) (bearer auth)
+  GET  /extract/stats    class/asset distribution, claims-without-confidence (must be 0), run history (bearer auth)
+  POST /admin/fx         load an FX reference rate (bearer auth) — C2
 """
 from __future__ import annotations
 
 import asyncio
 import logging
+from datetime import date, datetime
+from decimal import Decimal
 import os
 import pathlib
 from contextlib import asynccontextmanager
@@ -27,7 +34,11 @@ from fastapi.responses import JSONResponse, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 
+import hashlib
+
 from .db import Database
+from .extract.service import run_extraction
+from .extract.store import ExtractStore
 from .mcp import McpDispatcher
 from .models import HealthResult, IngestBody, IngestResult, RawBody, RawResult, SeenBody, record_to_row
 
@@ -46,10 +57,36 @@ RETENTION_DAYS = int(os.environ.get("LENS_RECORD_RETENTION_DAYS", os.environ.get
 # Raw payload body size accepted by POST /raw (bytes); larger bodies are rejected, not truncated here.
 RAW_MAX_BYTES = int(os.environ.get("LENS_RAW_MAX_BYTES", str(2_000_000)))
 PURGE_INTERVAL_S = 24 * 3600
+# Phase 6 (001C §8): extraction loop interval in minutes; 0 disables the loop (admin endpoint still works).
+EXTRACT_INTERVAL_MIN = int(os.environ.get("LENS_EXTRACT_INTERVAL_MIN", "15"))
+EXTRACT_BATCH = int(os.environ.get("LENS_EXTRACT_BATCH", "500"))
+# Contact points (D5/C4): salt for contact hashes (stable per deployment) and pgcrypto key for raw values.
+CONTACT_SALT = os.environ.get("LENS_CONTACT_SALT") or hashlib.sha256(f"contact-salt:{TOKEN}".encode()).hexdigest()
+CONTACT_KEY = os.environ.get("LENS_CONTACT_KEY") or None
 
 log = logging.getLogger("lens-api")
 
 db = Database(DSN)
+extract_store = ExtractStore(db, CONTACT_KEY)
+db.extract = extract_store  # exposes the L2 store to the MCP dispatcher (read-only tools)
+_extract_lock = asyncio.Lock()
+
+
+async def _extract_once(trigger: str, since=None, limit: int | None = None, force: bool = False) -> dict:
+    async with _extract_lock:  # one run at a time; runs append, so overlap would only waste work
+        return await run_extraction(extract_store, trigger=trigger, since=since, limit=limit or EXTRACT_BATCH, force=force,
+                                    pgcrypto=db.pgcrypto, contact_salt=CONTACT_SALT)
+
+
+async def _extract_loop() -> None:
+    while True:
+        try:
+            res = await _extract_once("scheduled")
+            if res["records_in"]:
+                log.info("extraction: %s", res)
+        except Exception as e:  # never let extraction take the API down
+            log.warning("extraction run failed: %s", e)
+        await asyncio.sleep(EXTRACT_INTERVAL_MIN * 60)
 
 
 async def _purge_loop() -> None:
@@ -68,13 +105,15 @@ async def _purge_loop() -> None:
 async def lifespan(app: FastAPI):
     await db.connect()
     task = asyncio.create_task(_purge_loop()) if (RETENTION_DAYS > 0 or RAW_BODY_RETENTION_DAYS > 0) else None
+    xtask = asyncio.create_task(_extract_loop()) if EXTRACT_INTERVAL_MIN > 0 else None
     yield
-    if task:
-        task.cancel()
+    for t in (task, xtask):
+        if t:
+            t.cancel()
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.5.0", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.0", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -216,6 +255,48 @@ async def provenance(key: str) -> dict:
     if res is None:
         raise HTTPException(status_code=404, detail="unknown record key")
     return res
+
+
+@app.post("/admin/extract", dependencies=[Depends(require_token)])
+async def admin_extract(
+    since: datetime | None = Query(default=None), limit: int = Query(default=500, ge=1, le=5000), force: bool = Query(default=False)
+) -> dict:
+    """Run RULE_V1 now over records with no current observation (or changed content). `force=1` re-runs the current
+    method version on already-observed records (new observations; old ones are kept — 001C §2)."""
+    return await _extract_once("admin", since, limit, force)
+
+
+@app.get("/observations", dependencies=[Depends(require_token)])
+async def observations_list(
+    signal_class: str | None = Query(default=None, alias="class"),
+    asset_type: str | None = Query(default=None, alias="asset"),
+    since: datetime | None = Query(default=None),
+    min_conf: float = Query(default=0.0, ge=0.0, le=1.0),
+    limit: int = Query(default=50, ge=1, le=500),
+) -> dict:
+    rows = await extract_store.list_observations(signal_class, asset_type, since, min_conf, limit)
+    return {"observations": rows, "count": len(rows)}
+
+
+@app.get("/observations/{key}", dependencies=[Depends(require_token)])
+async def observation_get(key: str, all: bool = Query(default=False)) -> dict:
+    res = await extract_store.get_observation(key, all_runs=all)
+    if res is None:
+        raise HTTPException(status_code=404, detail="no observation for key")
+    return res
+
+
+@app.get("/extract/stats", dependencies=[Depends(require_token)])
+async def extract_stats() -> dict:
+    return await extract_store.stats()
+
+
+@app.post("/admin/fx", dependencies=[Depends(require_token)])
+async def admin_fx(currency: str = Query(pattern="^(USD|THB)$"), rate_date: date = Query(), lak_per_unit: Decimal = Query(gt=0),
+                   source: str = Query(default="MANUAL", pattern="^(BOL_REFERENCE|MANUAL)$")) -> dict:
+    """Load one FX reference rate (C2). Idempotent per (currency, date)."""
+    await extract_store.upsert_fx(currency, rate_date, lak_per_unit, source)
+    return {"currency": currency, "rate_date": rate_date.isoformat(), "lak_per_unit": str(lak_per_unit), "source": source}
 
 
 @app.post("/mcp", dependencies=[Depends(require_token)])

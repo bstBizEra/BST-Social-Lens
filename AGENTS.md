@@ -68,7 +68,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 | 4 Detailed Solution Design | `docs/03-architecture`, `docs/04-data-api-integration` | **done** — schema v1 in `src/lib/types.ts`; ingest contract + LensDB schema in `services/lens-api` |
 | 5 Security/Compliance Design | `docs/05-security-privacy` | pending — Lao EDPL 2017 mapping, ToS exposure register |
 | 6 Implementation Planning | `docs/07-engineering-devsecops` | pending |
-| 7 Development | `src/`, `services/` | extension 0.7.0 (provenance hashes, raw sync); lens-api 0.5.0 (ingest, `/raw`, `/provenance`, `/mcp`, ordered retention) |
+| 7 Development | `src/`, `services/` | extension 0.7.0 (provenance hashes, raw sync); lens-api 0.6.0 (ingest, `/raw`, `/provenance`, `/mcp`, ordered retention, RULE_V1 extraction → `extract.*`, `/observations`, `/extract/stats`) |
 | 8 Engineering Verification | `tests/` | extension: 6 vitest incl. live re-parse; lens-api: 5 pytest + live Postgres upsert check |
 | 9–14 | `docs/08..12` | not started |
 

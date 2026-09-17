@@ -90,6 +90,7 @@ class Database:
         self._dsn = dsn
         self._pool: asyncpg.Pool | None = None
         self.pgcrypto: bool = False
+        self.extract: Any = None  # ExtractStore, attached by main (L2 reads for /mcp)
 
     async def connect(self) -> None:
         self._pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=10)
