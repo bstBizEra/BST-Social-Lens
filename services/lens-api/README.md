@@ -141,7 +141,7 @@ Golden sets (C5): `python scripts/golden.py export --out DIR --limit 120` writes
 
 ## Entity resolution — `app/resolution/` (Phase 7, 001E) — pure modules
 
-`canonical_permalink(url)` / `post_identity(url)` (001E §3), `jaccard_3gram` / `simhash64` / `hamming` (§4/§6), and `score_pair(Side, Side) -> Score` (`MATCH_V1`, §6; weights uncalibrated until the §11 reviewed sample). Not wired yet: blocking, candidates/decisions tables, run loop and `/market/*` follow 001F.
+`canonical_permalink(url)` / `post_identity(url)` (001E §3), `jaccard_3gram` / `simhash64` / `hamming` (§4/§6), `score_pair(Side, Side) -> Score` (`MATCH_V1`, §6; weights uncalibrated until the §11 reviewed sample), `build_clusters([ClusterInput]) -> (clusters, evidence)` (§4) and `block([Side]) -> BlockingResult` (§5). Not wired yet: candidates/decisions tables, run loop and `/market/*` follow 001F.
 
 ## Schema files and lint
 
