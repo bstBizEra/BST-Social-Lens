@@ -143,9 +143,13 @@ Golden sets (C5): `python scripts/golden.py export --out DIR --limit 120` writes
 
 `canonical_permalink(url)` / `post_identity(url)` (001E §3), `jaccard_3gram` / `simhash64` / `hamming` (§4/§6), `score_pair(Side, Side) -> Score` (`MATCH_V1`, §6; weights uncalibrated until the §11 reviewed sample), `build_clusters([ClusterInput]) -> (clusters, evidence)` (§4) and `block([Side]) -> BlockingResult` (§5). Not wired yet: candidates/decisions tables, run loop and `/market/*` follow 001F.
 
+## Quality & publication — `app/quality/`, `app/publish/` (Phase 8, 001G/001H) — pure modules
+
+`score_observation(DqInput) -> DqResult` (DQ 0–100, grade A–D, per-component reasons), `property_dq()`, `evaluate_rules()` (validation exceptions). `check_records()` / `check_bundle_text()` are the export negative check (no contacts, author hashes, text, media, permalinks, stray hashes). `audit.events` (`schema_audit.sql`) is applied at startup; review/publish endpoints follow the 001E/001F freezes.
+
 ## Schema files and lint
 
-`app/schema.sql` = L0/L1 (core); `app/schema_<layer>.sql` = L2/L3 (`schema_extract.sql`, `schema_geo.sql` applied; `schema_market.sql` is the 001F draft, linted but not applied until 001E freezes), additive only. `python scripts/schema_lint.py app` (also `tests/test_schema_lint.py`) rejects L2 statements that touch L0/L1 tables, bare fact-like column names (`price`, `owner`, `property`, `area`, `parcel`, `title`, BizProp+ ids), observation/claim tables without a NOT NULL 0..1 `confidence`, DROP/DELETE in the core file, claims JSON that could carry a raw contact value, price-like columns on `market.properties`, snapshot tables without `stats_version`/`computed_at`, and decision/link tables without `supersedes_*` (or with `updated_at`). `LENS_CONTACT_KEY` (optional) is the pgcrypto key for `extract.contact_points.raw_value_enc`; unset ⇒ raw contact values are not stored (masked + hash only).
+`app/schema.sql` = L0/L1 (core); `app/schema_<layer>.sql` = L2/L3 (`schema_extract.sql`, `schema_geo.sql`, `schema_audit.sql` applied; `schema_market.sql` is the 001F draft, linted but not applied until 001E freezes), additive only. `python scripts/schema_lint.py app` (also `tests/test_schema_lint.py`) rejects L2 statements that touch L0/L1 tables, bare fact-like column names (`price`, `owner`, `property`, `area`, `parcel`, `title`, BizProp+ ids), observation/claim tables without a NOT NULL 0..1 `confidence`, DROP/DELETE in the core file, claims JSON that could carry a raw contact value, price-like columns on `market.properties`, snapshot tables without `stats_version`/`computed_at`, and decision/link tables without `supersedes_*` (or with `updated_at`). `LENS_CONTACT_KEY` (optional) is the pgcrypto key for `extract.contact_points.raw_value_enc`; unset ⇒ raw contact values are not stored (masked + hash only).
 
 ## Retention (data minimisation, ordered)
 
