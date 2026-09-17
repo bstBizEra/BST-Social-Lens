@@ -200,11 +200,23 @@ async function syncToIngest() {
   const settings = await getSettings();
   if (!settings.ingestUrl) return { pushed: 0, error: 'no ingest url' };
   const batch = await db.records.where('synced').equals(0).limit(500).toArray();
-  if (batch.length === 0) return { pushed: 0 };
+  const headers = { 'content-type': 'application/json', ...(settings.ingestToken ? { authorization: `Bearer ${settings.ingestToken}` } : {}) };
+  if (batch.length === 0) {
+    // Nothing to push — still verify URL + token against the server so "Sync now" is a real connection test.
+    try {
+      const statsUrl = new URL('/stats', settings.ingestUrl).toString();
+      const res = await fetch(statsUrl, { headers });
+      if (!res.ok) return { pushed: 0, error: `HTTP ${res.status}${res.status === 401 ? ' (token rejected)' : ''}` };
+      const st = (await res.json()) as { total?: number };
+      return { pushed: 0, serverTotal: st.total ?? 0 };
+    } catch (e) {
+      return { pushed: 0, error: e instanceof Error ? e.message : String(e) };
+    }
+  }
   try {
     const res = await fetch(settings.ingestUrl, {
       method: 'POST',
-      headers: { 'content-type': 'application/json', ...(settings.ingestToken ? { authorization: `Bearer ${settings.ingestToken}` } : {}) },
+      headers,
       body: JSON.stringify({ source: 'bst-social-lens', version: browser.runtime.getManifest().version, records: batch }),
     });
     if (!res.ok) return { pushed: 0, error: `HTTP ${res.status}` };

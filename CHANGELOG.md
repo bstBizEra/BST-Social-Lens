@@ -16,6 +16,7 @@ All notable changes to BST Social Lens are documented here. Format loosely follo
 - `src/lib/assist.ts`: pure, unit-tested allow-list (`classifyLabel`), navigation guard (`isSamePage`), picker (`pickExpanders`) and pacing. Deny-list blocks Join / Like / Share / Reply / Follow / See all / View post and Lao/Thai equivalents.
 - Run stops with reason `navigated` if the page URL changes (SPA pushState included); each element is clicked at most once per run (`ClickLedger`, reset on every Start); only elements on or just below the viewport are considered. `javascript:`/`data:` hrefs are never treated as in-page; a candidate must pass **both** control-semantics and label checks (no hint-only path).
 - Side panel shows "threads expanded" alongside the scroll count.
+- **Sync now** with nothing to push now verifies the ingest URL + token against `GET /stats` and reports "Connected — nothing to push (server holds N records)" or the HTTP error (401 = token rejected). Previously it returned "Pushed 0 records" without contacting the server.
 - Default keyword set extended (OP-Vily, 2026-09-17): + ເນື້ອທີ່, location, google map, lat, long. Applies to fresh installs; existing installs edit *Include terms* in the panel.
 
 ### Changed

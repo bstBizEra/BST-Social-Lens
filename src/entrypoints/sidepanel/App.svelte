@@ -58,7 +58,9 @@
   const exportRaw = (platform?: Platform) =>
     run('Export raw', () => send<{ count: number; filename: string }>({ type: 'exportRaw', platform }), (r) => `Saved ${r.count} raw payloads → ${r.filename}`);
 
-  const sync = () => run('Sync', () => send<{ pushed: number; error?: string }>({ type: 'sync' }), (r) => (r.error ? `Sync error: ${r.error}` : `Pushed ${r.pushed} records`));
+  const sync = () =>
+    run('Sync', () => send<{ pushed: number; error?: string; serverTotal?: number }>({ type: 'sync' }), (r) =>
+      r.error ? `Sync error: ${r.error}` : r.pushed === 0 && r.serverTotal !== undefined ? `Connected — nothing to push (server holds ${r.serverTotal} records)` : `Pushed ${r.pushed} records`);
 
   const clear = (what: 'records' | 'raw' | 'seen' | 'all') => {
     if (!confirm(`Clear ${what}? This cannot be undone.`)) return;
