@@ -15,6 +15,7 @@ import asyncpg
 SCHEMA_PATH = pathlib.Path(__file__).with_name("schema.sql")
 # L2 schemas are separate files, applied after the core schema; schema_lint keeps them additive.
 L2_SCHEMA_PATHS = [pathlib.Path(__file__).with_name("schema_extract.sql"), pathlib.Path(__file__).with_name("schema_geo.sql"), pathlib.Path(__file__).with_name("schema_audit.sql")]
+POSTGIS_SCHEMA_PATH = pathlib.Path(__file__).with_name("schema_postgis.sql")  # applied only when postgis is installed
 
 _UPSERT = """
 INSERT INTO records (
@@ -90,6 +91,7 @@ class Database:
         self._dsn = dsn
         self._pool: asyncpg.Pool | None = None
         self.pgcrypto: bool = False
+        self.postgis: bool = False
         self.extract: Any = None  # ExtractStore, attached by main (L2 reads for /mcp)
         self.geo: Any = None  # GeoStore, attached by main
 
@@ -119,6 +121,10 @@ class Database:
                 self.pgcrypto = False
             for p in L2_SCHEMA_PATHS:
                 await con.execute(p.read_text(encoding="utf-8"))
+            # PostGIS (001D G1): only when the extension is installed on the cluster (scripts/install-postgis.sh).
+            self.postgis = bool(await con.fetchval("SELECT 1 FROM pg_extension WHERE extname = 'postgis'"))
+            if self.postgis:
+                await con.execute(POSTGIS_SCHEMA_PATH.read_text(encoding="utf-8"))
 
     async def upsert_records(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
         """Returns (inserted, updated)."""

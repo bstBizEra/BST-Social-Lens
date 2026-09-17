@@ -1,7 +1,7 @@
 # SLL-PROP-DATA-001D — Geo-Normalisation Contract v0.1
 
 - Parent: `SLL-PROP-DATA-001` (frozen) · Boundary: `001A` (frozen, D4) · Extraction: `001C` (location claims defined there) · Roadmap: ADR-0005 Phase 6 → v0.8.0
-- Status: **Draft for freeze** (2026-09-17). Freezes together with 001C when the resolver passes §9. Implementation state: §2 reference copy (`app/schema_geo.sql`, GeoJSON held until PostGIS), §3 record, §4.2 text path, §4.1 point path without polygons (codes via §4.3 agreement only, signalled), §4.3 reconcile by centroid distance, §6 confidence, §7 endpoints/MCP — in `app/geo/` (`GEO_RULE_V1` 1.0.0). Pending: PostGIS `ST_Within` (G1), §9.2 golden locations (operator), §9.5 live evidence.
+- Status: **Draft for freeze** (2026-09-17). Freezes together with 001C when the resolver passes §9. Implementation state: §2 reference copy (`app/schema_geo.sql`, GeoJSON held until PostGIS), §3 record, §4.2 text path, §4.1 point path without polygons (codes via §4.3 agreement only, signalled), §4.3 reconcile by centroid distance, §6 confidence, §7 endpoints/MCP — in `app/geo/` (`GEO_RULE_V1` 1.0.0). §4.1 step 3 `ST_Within` implemented (`schema_postgis.sql`, applied when PostGIS is installed; `scripts/install-postgis.sh`); Lao Data Map converter/importer (`scripts/geo_import.py`). Pending: G1 on the bizera-wsl cluster (operator), §9.2 golden locations (operator), §9.5 live evidence.
 - Contract family: **C03 Geo-Normalisation** — *location precision and confidence must be explicit*
 
 ## 1. Purpose and scope

@@ -218,6 +218,33 @@ def _reconcile(point: Resolution, text: Resolution, gaz: Gazetteer | None) -> No
         point.signals.append(f"point_text_undetermined:{km:.0f}km")
 
 
+def apply_polygon_lookup(resolutions: list[Resolution], lookups: dict[int, dict | None]) -> None:
+    """Fill admin codes on point rows from a PostGIS point-in-polygon result (001D §4.1 step 3), replacing the
+    `no_polygons` marker. `lookups` maps the index of a point resolution → geo.point_in_admin row (or None)."""
+    for i, res in enumerate(resolutions):
+        if res.point_source not in ("MAP_URL", "TEXT_COORDINATE"):
+            continue
+        hit = lookups.get(i)
+        if hit is None:
+            continue
+        res.signals = [s for s in res.signals if s != "no_polygons"]
+        if not (hit.get("province_code") or hit.get("district_code") or hit.get("village_code")):
+            res.signals.append("point_outside_admin_polygons")
+            continue
+        text_rows = [r for r in resolutions if r.point_source not in ("MAP_URL", "TEXT_COORDINATE") and r.district_code]
+        res.province_code, res.district_code, res.village_code = hit.get("province_code"), hit.get("district_code"), hit.get("village_code")
+        res.signals = [s for s in res.signals if not s.startswith("point_near_text_centroid") and not s.startswith("point_text_undetermined")]
+        res.signals.append("st_within:" + (hit.get("village_code") or hit.get("district_code") or hit.get("province_code") or "?"))
+        for t in text_rows:
+            if t.district_code == res.district_code:
+                if "point_text_agree" not in t.signals:
+                    t.signals.append("point_text_agree")
+            elif t.district_code and res.district_code and "conflict_text_vs_point" not in t.signals:
+                t.signals.append("conflict_text_vs_point")
+                t.confidence = round(max(0.0, t.confidence - 0.15), 3)
+                t.review_status = "LOW_CONFIDENCE" if t.confidence < LOW_CONFIDENCE else t.review_status
+
+
 def _haversine_km(lat1: float, lng1: float, lat2: float, lng2: float) -> float:
     r = 6371.0
     p1, p2 = math.radians(lat1), math.radians(lat2)

@@ -26,6 +26,7 @@ POSTS = [
     ("facebook:x2", "Land for sale 600 sqm $45,000 owner direct"),
     ("facebook:x3", "ສະບາຍດີ ມື້ນີ້ອາກາດດີ"),
     ("facebook:x4", "ໃຫ້ເຊົ່າເຮືອນ ບ້ານໂພນຕ້ອງ ລາຄາ 350"),   # ambiguous village + bare price → review queues
+    ("facebook:x5", "ຂາຍດິນ 20x30 https://maps.google.com/?q=18.052,102.661 ລາຄາ 1.5 ຕື້"),  # pin inside the V-XTN-DDK test polygon
 ]
 
 
@@ -61,11 +62,11 @@ def env():
 def test_run_extracts_and_is_idempotent(env):
     main, run = env
     r1 = main.loop.run_until_complete(run(main.extract_store, trigger="test", pgcrypto=main.db.pgcrypto, contact_salt="s"))
-    assert r1["records_in"] == 4 and r1["observations_out"] == 4
+    assert r1["records_in"] == 5 and r1["observations_out"] == 5
     r2 = main.loop.run_until_complete(run(main.extract_store, trigger="test", pgcrypto=main.db.pgcrypto, contact_salt="s"))
     assert r2["records_in"] == 0  # nothing new: same content_hash + method_version
     r3 = main.loop.run_until_complete(run(main.extract_store, trigger="test", force=True, pgcrypto=main.db.pgcrypto, contact_salt="s"))
-    assert r3["observations_out"] == 4  # force appends new observations, old ones remain
+    assert r3["observations_out"] == 5  # force appends new observations, old ones remain
 
     async def counts():
         async with main.db.pool.acquire() as con:
@@ -74,7 +75,7 @@ def test_run_extracts_and_is_idempotent(env):
                     await con.fetchval("SELECT count(*) FROM extract.runs"))
 
     total, current, runs = main.loop.run_until_complete(counts())
-    assert total == 8 and current == 4 and runs == 3
+    assert total == 10 and current == 5 and runs == 3
 
 
 def test_observation_content_fx_and_contact_protection(env):
@@ -110,12 +111,12 @@ def test_http_and_mcp_read_paths(env):
     h = {"Authorization": "Bearer test-token"}
     with TestClient(main.app) as client:
         r = client.get("/observations?class=PROPERTY_SALE", headers=h)
-        assert r.status_code == 200 and {o["record_key"] for o in r.json()["observations"]} == {"facebook:x1", "facebook:x2"}
+        assert r.status_code == 200 and {o["record_key"] for o in r.json()["observations"]} == {"facebook:x1", "facebook:x2", "facebook:x5"}
         r = client.get("/observations/facebook:x1?all=1", headers=h)
         assert r.status_code == 200 and len(r.json()["observations"]) == 2
         assert client.get("/observations/facebook:nope", headers=h).status_code == 404
         s = client.get("/extract/stats", headers=h).json()
-        assert s["claims_without_confidence"] == 0 and s["observations"] == 4 and s["by_signal_class"]["NON_PROPERTY"] == 1
+        assert s["claims_without_confidence"] == 0 and s["observations"] == 5 and s["by_signal_class"]["NON_PROPERTY"] == 1
         r = client.post("/admin/fx?currency=THB&rate_date=2026-09-01&lak_per_unit=640", headers=h)
         assert r.status_code == 200
         r = client.post("/admin/extract?force=1&limit=1", headers=h)
@@ -154,13 +155,18 @@ def test_geo_import_resolve_and_stats(env):
         r = client.get("/geo/resolve", headers=h, params={"text": "ຂາຍດິນ ບ້ານດົງໂດກ https://maps.google.com/?q=18.052,102.661"})
         assert r.status_code == 200 and r.json()["resolutions"][0]["village_code"] == "V-XTN-DDK"
         r = client.post("/admin/extract?force=1", headers=h)
-        assert r.status_code == 200 and r.json()["observations_out"] == 4
+        assert r.status_code == 200 and r.json()["observations_out"] == 5
         o = client.get("/observations/facebook:x1", headers=h).json()
         assert o["locations"] and o["locations"][0]["is_primary"] and o["locations"][0]["precision"] == "VILLAGE"
         assert o["locations"][0]["village_code"] == "V-XTN-NSP" and o["locations"][0]["admin_version"] == "sample-2026.09"
         assert isinstance(o["signal_confidence"], float) and len(str(o["signal_confidence"]).split(".")[1]) <= 4  # rounded REAL
         s = client.get("/geo/stats", headers=h).json()
         assert s["admin_version"]["admin_version"] == "sample-2026.09" and s["gazetteer"]["villages"] == 8
+        if s["postgis"]:  # G1 present on this DB: the pin in x5 must resolve through ST_Within, not the centroid approximation
+            o5 = client.get("/observations/facebook:x5", headers=h).json()
+            pin = next(loc for loc in o5["locations"] if loc["point_source"] == "MAP_URL")
+            assert pin["village_code"] == "V-XTN-DDK" and pin["district_code"] == "D-VTE-XTN" and pin["province_code"] == "P-VTE"
+            assert any(sig.startswith("st_within:") for sig in pin["signals"]) and "no_polygons" not in pin["signals"]
         assert s["precision_assigned_share"] == 1.0 and s["without_confidence"] == 0 and s["by_precision"]["VILLAGE"] == 1
         r = client.post("/admin/geo/alias?level=village&code=V-XTN-DDK&alias=ດົງໂດກໃຫຍ່", headers=h)
         assert r.status_code == 200
@@ -234,6 +240,6 @@ def test_review_csv_round_trip_and_quality_stats(env):
     with TestClient(main.app) as client:
         h = {"Authorization": "Bearer test-token"}
         s = client.get("/quality/stats", headers=h).json()
-        assert s["dq_version"] and s["observations"] == 3 and sum(s["by_grade"].values()) == 3 and "mean_score" in s
+        assert s["dq_version"] and s["observations"] == 4 and sum(s["by_grade"].values()) == 4 and "mean_score" in s
         mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "quality_stats", "arguments": {}}})
         assert mcp.status_code == 200 and "by_grade" in mcp.text
