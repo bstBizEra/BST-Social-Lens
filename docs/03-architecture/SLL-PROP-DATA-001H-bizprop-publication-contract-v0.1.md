@@ -1,7 +1,7 @@
 # SLL-PROP-DATA-001H — BizProp+ Publication Contract v0.1
 
 - Parent: `SLL-PROP-DATA-001` (frozen) · Boundary: `001A` §7 (frozen; D6, D7) · Inputs: `001E` market properties, `001G` DQ grades and review states · Physical: `001F` `publish.*` · Roadmap: ADR-0005 Phase 8 (part 1: dataset versions) and Phase 9 (part 2: Reference API) → v1.0.0 / v1.1.0
-- Status: **Draft for freeze** (2026-09-17). Part 1 freezes with the first `PUBLISHED` dataset version; part 2 with the shared integration suite (§9).
+- Status: **Draft for freeze** (2026-09-17). Part 1 freezes with the first `PUBLISHED` dataset version; part 2 with the shared integration suite (§9). Implementation state: §4 export negative check (`app/publish/bundle_check.py`) done; lifecycle, assemble/publish, Reference API pending 001F application.
 - Contract family: **C05 Publication** — *only controlled/published market intelligence crosses the boundary*
 - Precondition note: **executing** a publish (setting a version `PUBLISHED`) requires the security/compliance register (Gate 5, parked at owner decision). This contract defines the mechanism and is drafted without legal content.
 

@@ -14,7 +14,7 @@ import asyncpg
 
 SCHEMA_PATH = pathlib.Path(__file__).with_name("schema.sql")
 # L2 schemas are separate files, applied after the core schema; schema_lint keeps them additive.
-L2_SCHEMA_PATHS = [pathlib.Path(__file__).with_name("schema_extract.sql"), pathlib.Path(__file__).with_name("schema_geo.sql")]
+L2_SCHEMA_PATHS = [pathlib.Path(__file__).with_name("schema_extract.sql"), pathlib.Path(__file__).with_name("schema_geo.sql"), pathlib.Path(__file__).with_name("schema_audit.sql")]
 
 _UPSERT = """
 INSERT INTO records (
