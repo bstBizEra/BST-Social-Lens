@@ -22,6 +22,7 @@ Endpoints
   POST /admin/geo/alias  add a name alias collected from review (bearer auth) — 001D G3
   GET  /geo/stats        gazetteer + precision distribution + 001D §9.5 evidence (bearer auth)
   GET  /geo/resolve?text= dry-run resolver over a text; no write (bearer auth)
+  GET  /quality/stats    DQ grade distribution + validation exceptions over current observations (bearer auth) — 001G
 """
 from __future__ import annotations
 
@@ -42,7 +43,7 @@ import hashlib
 
 from .db import Database
 from .extract.service import run_extraction
-from .extract.store import ExtractStore
+from .extract.store import ExtractStore, quality_stats
 from .geo.resolver import resolve as geo_resolve
 from .geo.store import GeoStore
 from .mcp import McpDispatcher
@@ -122,7 +123,7 @@ async def lifespan(app: FastAPI):
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.1", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.2", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -346,6 +347,11 @@ async def geo_resolve_dry(text: str = Query(min_length=1, max_length=4000)) -> d
         "claims": [c.to_dict() for c in obs.claims if c.field in ("LOCATION_TEXT", "MAP_URL", "COORDINATE")],
         "resolutions": [r.__dict__ for r in res],
     }
+
+
+@app.get("/quality/stats", dependencies=[Depends(require_token)])
+async def quality_stats_endpoint() -> dict:
+    return await quality_stats(db)
 
 
 @app.post("/mcp", dependencies=[Depends(require_token)])

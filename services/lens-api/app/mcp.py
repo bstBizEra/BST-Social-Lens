@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.1"}
+SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.2"}
 
 # JSON-RPC error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL = -32700, -32600, -32601, -32602, -32603
@@ -116,6 +116,11 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Dry-run the location resolver over a text (no write): location claims found and their resolutions with precision, admin codes, confidence and signals.",
         "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
     },
+    {
+        "name": "quality_stats",
+        "description": "Phase 8 (001G): DQ grade distribution (A–D), mean score, share B-or-better, validation exception counts over current property observations.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 ToolFn = Callable[[dict[str, Any]], Awaitable[Any]]
@@ -165,6 +170,7 @@ class McpDispatcher:
             "extraction_stats": self.extraction_stats,
             "geo_stats": self.geo_stats,
             "resolve_text": self.resolve_text,
+            "quality_stats": self.quality_stats,
         }
 
     # ---------- tools ----------
@@ -225,6 +231,11 @@ class McpDispatcher:
         obs = extract_observation(text[:4000])
         gaz = await self.db.geo.gazetteer()
         return {"admin_version": gaz.admin_version, "resolutions": [r.__dict__ for r in resolve(obs.claims, gaz)]}
+
+    async def quality_stats(self, a: dict[str, Any]) -> Any:
+        from .extract.store import quality_stats
+
+        return await quality_stats(self.db)
 
     # ---------- JSON-RPC ----------
 

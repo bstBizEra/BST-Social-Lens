@@ -1,7 +1,7 @@
 # SLL-PROP-DATA-001G — Quality & Review Contract v0.1
 
 - Parent: `SLL-PROP-DATA-001` (frozen) · Boundary: `001A` (frozen) · Inputs: `001C` claims, `001D` resolutions, `001E` decisions · Physical: `001F` · Roadmap: ADR-0005 Phase 8 → v1.0.0
-- Status: **Draft for freeze** (2026-09-17). Freezes when the review workflow has run on real queues for two weeks and §9 holds. Implementation state: §2 DQ scorer + validation rules (`app/quality/dq.py`) and §5 `audit.events` (`schema_audit.sql`, applied) done; §3 queues, §4 roles, §6 CSV protocol, §7 endpoints pending.
+- Status: **Draft for freeze** (2026-09-17). Freezes when the review workflow has run on real queues for two weeks and §9 holds. Implementation state: §2 DQ scorer + validation rules (`app/quality/dq.py`) and §5 `audit.events` (`schema_audit.sql`, applied) done; §3 extraction/location queues and §6 CSV protocol done (`scripts/review.py`); `GET /quality/stats` done; §4 roles, match queue and the remaining §7 endpoints pending 001F.
 - Contract family: supports **C05 Publication** (only reviewed, graded intelligence is publishable) and closes the review states opened by 001C §7, 001D §3, 001E §7.
 
 ## 1. Purpose and scope
@@ -45,7 +45,7 @@ market property with zero current observations; contact point with > 200 sightin
 
 | Queue | Item | Opened by | Machine state on entry |
 |---|---|---|---|
-| **Extraction** | `extract.claims` | 001C: `review_status = LOW_CONFIDENCE`; or any claim on an observation with `UNCERTAIN` class and lead groups present | `UNREVIEWED` / `LOW_CONFIDENCE` |
+| **Extraction** | `extract.claims` | 001C: `review_status = LOW_CONFIDENCE` (< 0.3); **or** confidence < 0.5 (mid-confidence claims such as a bare number near a price term); or any claim on an observation with `UNCERTAIN` class and lead groups present | `UNREVIEWED` / `LOW_CONFIDENCE` |
 | **Location** | `geo.resolved_locations` | 001D: `LOW_CONFIDENCE`, `conflict_text_vs_point`, `*_ambiguous` | `UNREVIEWED` / `LOW_CONFIDENCE` |
 | **Match** | `resolution.entity_decisions` | 001E: `REVIEW_REQUIRED`; DQ exceptions of kind "entity" | `REVIEW_REQUIRED` |
 | **Exceptions** | validation rule hits (§2) | 001G | `OPEN` |
