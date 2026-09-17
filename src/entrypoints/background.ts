@@ -282,10 +282,28 @@ async function syncToIngest() {
 const RAW_BATCH_MAX_BYTES = 4_000_000;
 const RAW_BATCH_MAX_COUNT = 25;
 
+/** HK-001 §9 (0.7.4): ask the server which raw bodies it is missing and re-queue the ones we still hold. */
+async function requeueRawNeeded(settings: Awaited<ReturnType<typeof getSettings>>, headers: Record<string, string>): Promise<number> {
+  try {
+    const res = await fetch(new URL('/raw/needed?limit=200', settings.ingestUrl).toString(), { headers });
+    if (!res.ok) return 0;
+    const { payload_hashes } = (await res.json()) as { payload_hashes: string[] };
+    if (!payload_hashes?.length) return 0;
+    let n = 0;
+    await db.raw.where('payload_hash').anyOf(payload_hashes).modify((r: { synced?: number; body?: string }) => {
+      if (r.synced === 1 && r.body) { r.synced = 0; n++; }
+    });
+    return n;
+  } catch {
+    return 0;
+  }
+}
+
 /** Phase 5: push unsynced raw payloads to POST /raw (same origin as the ingest URL). */
 async function syncRaw(settings: Awaited<ReturnType<typeof getSettings>>, headers: Record<string, string>) {
+  const requeued = await requeueRawNeeded(settings, headers);
   const pending = await db.raw.where('synced').equals(0).limit(200).toArray();
-  if (pending.length === 0) return { pushedRaw: 0, rawNote: 'nothing pending' };
+  if (pending.length === 0) return { pushedRaw: 0, rawNote: requeued ? `re-queued ${requeued}` : 'nothing pending' };
   const plan = planRawBatch(pending.filter((r) => r.payload_hash), RAW_BATCH_MAX_BYTES, RAW_BATCH_MAX_COUNT);
   if (plan.skippedTooLarge.length) await db.raw.bulkPut(plan.skippedTooLarge.map((r) => ({ ...r, synced: 2 as const })));
   if (plan.rows.length === 0) return { pushedRaw: 0, rawSkipped: plan.skippedTooLarge.length, rawNote: 'all pending payloads over the batch cap' };
@@ -307,7 +325,7 @@ async function syncRaw(settings: Awaited<ReturnType<typeof getSettings>>, header
   const rejected = new Set(result.rejected_hashes ?? []);
   await db.raw.bulkPut(plan.rows.map((r) => ({ ...r, synced: (rejected.has(r.payload_hash!) ? 2 : 1) as 1 | 2 })));
   const remaining = Math.max(0, pending.length - plan.rows.length - plan.skippedTooLarge.length);
-  return { pushedRaw: plan.rows.length - rejected.size, rawRejected: rejected.size, rawSkipped: plan.skippedTooLarge.length, rawRemaining: remaining };
+  return { pushedRaw: plan.rows.length - rejected.size, rawRejected: rejected.size, rawSkipped: plan.skippedTooLarge.length, rawRemaining: remaining, rawRequeued: requeued };
 }
 
 export default defineBackground(() => {

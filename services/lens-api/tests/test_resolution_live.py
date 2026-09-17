@@ -41,7 +41,7 @@ def env():
         main.db._dsn = DSN
         await main.db.connect()
         async with main.db.pool.acquire() as con:
-            await con.execute("""DELETE FROM housekeeping.actions; DELETE FROM housekeeping.findings; DELETE FROM housekeeping.checks; DELETE FROM housekeeping.watermarks; DELETE FROM housekeeping.lifecycle_states; DELETE FROM housekeeping.runs;
+            await con.execute("""DELETE FROM housekeeping.raw_needed; DELETE FROM housekeeping.actions; DELETE FROM housekeeping.findings; DELETE FROM housekeeping.checks; DELETE FROM housekeeping.watermarks; DELETE FROM housekeeping.lifecycle_states; DELETE FROM housekeeping.runs;
                                  DELETE FROM market.property_stats_snapshots; DELETE FROM resolution.entity_decisions; DELETE FROM resolution.entity_candidates;
                                  DELETE FROM resolution.property_transitions; DELETE FROM market.properties; DELETE FROM resolution.cluster_edges;
                                  DELETE FROM resolution.cluster_members; DELETE FROM resolution.listing_clusters; DELETE FROM resolution.runs;
@@ -259,14 +259,19 @@ def test_housekeeping_persists_runs_findings_and_lineage_walks(env):
     main = env
     h = {"Authorization": "Bearer test-token"}
     with TestClient(main.app) as client:
+        # run 1: the fixture rows have no capture events → RECORD_WITHOUT_EVENT (auto-allowed) is detected, persisted,
+        # actioned by BACKFILL_EVENTS in the same run, verified and RESOLVED. Nothing else is auto-allowed here.
         r1 = client.post("/admin/housekeeping/run", headers=h).json()
+        acts = {a["action"]: a["result"] for a in r1["actions"]}
+        assert r1["findings_open"] >= 1 and "BACKFILL_EVENTS" in acts and acts["BACKFILL_EVENTS"]["backfilled"] >= 7 and r1["verified_resolved"] >= 1, r1
+        hist = client.get("/housekeeping/findings?status=ALL&type=RECORD_WITHOUT_EVENT", headers=h).json()["findings"]
+        assert hist and hist[0]["status"] == "RESOLVED" and hist[0]["first_seen_run_id"] == r1["run_id"] and hist[0]["resolved_run_id"] == r1["run_id"]
+        # run 2: clean
         r2 = client.post("/admin/housekeeping/run", headers=h).json()
-        assert r1["run_id"] < r2["run_id"] and r2["findings_open"] >= 1
-        f = client.get("/housekeeping/findings", headers=h).json()["findings"]
-        ev = next(x for x in f if x["finding_type"] == "RECORD_WITHOUT_EVENT")
-        assert ev["first_seen_run_id"] == r1["run_id"] and ev["last_seen_run_id"] == r2["run_id"] and ev["status"] == "OPEN"
+        assert r2["run_id"] > r1["run_id"] and r2["actions_taken"] == 0
+        assert client.get("/housekeeping/findings", headers=h).json()["count"] == 0
         st = client.get("/housekeeping/status", headers=h).json()
-        assert st["last_run"]["run_id"] == r2["run_id"] and st["last_run"]["error"] is None
+        assert st["last_run"]["run_id"] == r2["run_id"] and st["last_run"]["error"] is None and st["reconciliation"]["R-SIGHT"]["ratio"] == 1.0
         dry = client.post("/admin/housekeeping/run?dry_run=1", headers=h).json()
         assert dry["dry_run"] is True
         # lineage from a record key, an observation, a property, a decision
@@ -275,7 +280,7 @@ def test_housekeeping_persists_runs_findings_and_lineage_walks(env):
         assert {"record", "observation", "location", "decision", "market_property", "snapshot"} <= types, types
         assert not any("text" in n or "raw_value" in n for n in rec["nodes"])
         rn = next(n for n in rec["nodes"] if n["type"] == "record")
-        assert "sightings" in rn and rn["sighting_count"] == len(rn["sightings"]) and rn["sightings"][0]["context"] == "container:test" if rn["sighting_count"] else True
+        assert "sightings" in rn and rn["sighting_count"] == len(rn["sightings"]) == 1  # the Actor's BACKFILL_EVENTS row (run 1)
         obs_id = next(n["id"] for n in rec["nodes"] if n["type"] == "observation" and n.get("current"))
         mp = next(n["id"] for n in rec["nodes"] if n["type"] == "market_property")
         assert client.get(f"/lineage/obs:{obs_id}", headers=h).status_code == 200
@@ -288,17 +293,16 @@ def test_housekeeping_persists_runs_findings_and_lineage_walks(env):
         mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "lineage", "arguments": {"id": "facebook:m1"}}})
         assert mcp.status_code == 200 and "market_property" in mcp.text
 
-    async def backfill_and_rerun():
+    async def audit_rows():
+
         con = await asyncpg.connect(DSN)
         try:
-            # make the RECORD_WITHOUT_EVENT finding disappear: backfill capture events for the fixture rows
-            await con.execute("INSERT INTO capture_events (record_key, captured_at, context) SELECT key, captured_at, 'container:test' FROM records WHERE key LIKE 'facebook:m%' ON CONFLICT DO NOTHING")
+            ev = await con.fetch("SELECT actor, role, action, queue, item_table FROM audit.events WHERE action='HOUSEKEEP'")
+            acts = await con.fetch("SELECT action_type, audit_event_id FROM housekeeping.actions ORDER BY action_id")
+            return [dict(e) for e in ev], [dict(a) for a in acts]
         finally:
             await con.close()
 
-    asyncio.run(backfill_and_rerun())
-    with TestClient(main.app) as client:
-        client.post("/admin/housekeeping/run", headers=h)
-        hist = client.get("/housekeeping/findings?status=ALL&type=RECORD_WITHOUT_EVENT", headers=h).json()["findings"]
-        assert hist and hist[0]["status"] == "RESOLVED" and hist[0]["resolved_run_id"] is not None
-        assert client.get("/housekeeping/findings?type=RECORD_WITHOUT_EVENT", headers=h).json()["count"] == 0
+    ev, acts = asyncio.run(audit_rows())
+    assert len(ev) == len(acts) and all(a["audit_event_id"] for a in acts)  # exactly one audit row per action
+    assert all(e["actor"] == "system:housekeeper" and e["role"] == "system" and e["queue"] == "housekeeping" for e in ev)

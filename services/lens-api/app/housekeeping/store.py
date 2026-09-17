@@ -16,8 +16,8 @@ def _j(x: Any) -> str:
     return json.dumps(x, ensure_ascii=False, default=str)
 
 
-async def run_housekeeping(db: Any, *, trigger: str, dry_run: bool = False, **config: Any) -> dict[str, Any]:
-    """Observe + measure + reconcile + classify, then persist (unless dry_run). Actions arrive in v0.2."""
+async def run_housekeeping(db: Any, *, trigger: str, dry_run: bool = False, services: Any = None, max_actions: int = 500, **config: Any) -> dict[str, Any]:
+    """Observe + measure + reconcile + classify → persist → ACT (safe list, §9) → verify. dry_run skips persist and actions."""
     t0 = time.monotonic()
     async with db.pool.acquire() as con:
         run_id = await con.fetchval("INSERT INTO housekeeping.runs (trigger, hk_version, dry_run) VALUES ($1,$2,$3) RETURNING run_id", trigger, HK_VERSION, dry_run)
@@ -65,7 +65,13 @@ async def run_housekeeping(db: Any, *, trigger: str, dry_run: bool = False, **co
         async with db.pool.acquire() as con:
             await con.execute("UPDATE housekeeping.runs SET finished_at=now(), checks_run=$2, findings_open=$3, duration_ms=$4, error=$5 WHERE run_id=$1",
                               run_id, len(status.get("reconciliation", {})), len(status.get("findings", [])), int((time.monotonic() - t0) * 1000), error)
-    return {"run_id": run_id, "dry_run": dry_run, "checks": len(status["reconciliation"]), "findings_open": len(status["findings"]), "health": status["health"]}
+    acted: dict[str, Any] = {"actions": [], "verified_resolved": 0}
+    if not dry_run and services is not None and status["findings"]:
+        from .actor import act
+
+        acted = await act(db, run_id=run_id, services=services, max_actions=max_actions, config=config)
+    return {"run_id": run_id, "dry_run": dry_run, "checks": len(status["reconciliation"]), "findings_open": len(status["findings"]), "health": status["health"],
+            "actions_taken": len(acted["actions"]), "actions": acted["actions"], "verified_resolved": acted["verified_resolved"]}
 
 
 async def list_findings(db: Any, *, ftype: str | None, status: str | None, severity: str | None, limit: int) -> list[dict[str, Any]]:
