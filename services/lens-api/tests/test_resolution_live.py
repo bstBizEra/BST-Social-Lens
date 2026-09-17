@@ -49,6 +49,7 @@ def env():
                                  DELETE FROM extract.claims; DELETE FROM extract.observations; DELETE FROM extract.runs; DELETE FROM extract.contact_points;
                                  DELETE FROM geo.name_aliases; DELETE FROM geo.villages; DELETE FROM geo.districts; DELETE FROM geo.provinces; DELETE FROM geo.admin_versions;""")
             # isolate from other live suites sharing the throwaway DB (test_extract_live uses facebook:x*)
+            await con.execute("DELETE FROM capture_events WHERE record_key LIKE 'facebook:m%' OR record_key LIKE 'facebook:x%'")
             await con.execute("DELETE FROM records WHERE key LIKE 'facebook:m%' OR key LIKE 'facebook:x%'")
             for key, text, author in POSTS:
                 await con.execute(
@@ -273,6 +274,8 @@ def test_housekeeping_persists_runs_findings_and_lineage_walks(env):
         types = {n["type"] for n in rec["nodes"]}
         assert {"record", "observation", "location", "decision", "market_property", "snapshot"} <= types, types
         assert not any("text" in n or "raw_value" in n for n in rec["nodes"])
+        rn = next(n for n in rec["nodes"] if n["type"] == "record")
+        assert "sightings" in rn and rn["sighting_count"] == len(rn["sightings"]) and rn["sightings"][0]["context"] == "container:test" if rn["sighting_count"] else True
         obs_id = next(n["id"] for n in rec["nodes"] if n["type"] == "observation" and n.get("current"))
         mp = next(n["id"] for n in rec["nodes"] if n["type"] == "market_property")
         assert client.get(f"/lineage/obs:{obs_id}", headers=h).status_code == 200

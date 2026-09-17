@@ -102,7 +102,9 @@ async def lineage(db: Any, ident: str) -> dict[str, Any] | None:
                 node("payload", ph, job="extension.capture", body_present=bool(raw and raw["body_present"]), received=raw is not None)
                 edge(("payload", ph), ("record", rk), "records.first/last_payload_hash")
             events = await con.fetch("SELECT captured_at, context, payload_hash FROM capture_events WHERE record_key=$1 ORDER BY captured_at", rk)
-            nodes[-1]["sightings"] = [{"at": e["captured_at"], "context": e["context"], "payload_present": e["payload_hash"] is not None} for e in events][:20]
+            rec_node = next(n for n in nodes if n["type"] == "record" and n["id"] == rk)
+            rec_node["sightings"] = [{"at": e["captured_at"], "context": e["context"], "payload_present": e["payload_hash"] is not None} for e in events][:20]
+            rec_node["sighting_count"] = len(events)
             # ---- L1 → L2 extraction (current + retired)
             obs = await con.fetch("""SELECT o.observation_id, o.run_id, o.method_version, o.signal_class, o.asset_type, o.observed_at, o.content_hash,
                                             (o.observation_id IN (SELECT observation_id FROM extract.current_observations)) AS is_current
@@ -113,8 +115,9 @@ async def lineage(db: Any, ident: str) -> dict[str, Any] | None:
                 node("observation", o["observation_id"], job="extract.rule_v1", version=o["method_version"], run=o["run_id"], signal_class=o["signal_class"], asset_type=o["asset_type"], current=o["is_current"])
                 edge(("record", rk), ("observation", o["observation_id"]), f"extract.runs#{o['run_id']}")
                 counts = await con.fetchrow("SELECT count(*) FILTER (WHERE field<>'CONTACT') claims, count(*) FILTER (WHERE field='CONTACT') contact_claims FROM extract.claims WHERE observation_id=$1", o["observation_id"])
-                nodes[-1]["claims"] = counts["claims"]
-                nodes[-1]["contact_claims"] = counts["contact_claims"]
+                obs_node = next(n for n in nodes if n["type"] == "observation" and n["id"] == str(o["observation_id"]))
+                obs_node["claims"] = counts["claims"]
+                obs_node["contact_claims"] = counts["contact_claims"]
                 for loc in await con.fetch("SELECT resolved_location_id, precision, resolver_method, resolver_version, is_primary, review_status, supersedes_id FROM geo.resolved_locations WHERE observation_id=$1 ORDER BY resolved_location_id", o["observation_id"]):
                     node("location", loc["resolved_location_id"], job=loc["resolver_method"], version=loc["resolver_version"], precision=loc["precision"], primary=loc["is_primary"], review_status=loc["review_status"])
                     edge(("observation", o["observation_id"]), ("location", loc["resolved_location_id"]), "geo.resolved_locations")
