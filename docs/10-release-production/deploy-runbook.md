@@ -136,6 +136,27 @@ Backup in this mode: `pg_dump -U lens -h 127.0.0.1 lens > lens_$(date +%F).sql`.
 
 ---
 
+### 2b. PostGIS + pg_trgm (Phase 6, 001D G1) and the Lao Data Map import (D4)
+
+```bash
+# once, inside WSL — installs postgresql-<major>-postgis-3, creates the extensions in LensDB
+bash /mnt/c/laragon/www/BST-Social-Lens/services/lens-api/scripts/install-postgis.sh
+sudo systemctl restart bst-lens-api        # init_db detects postgis and applies app/schema_postgis.sql (geom columns,
+                                           # backfill from GeoJSON, gist indexes, geo.point_in_admin())
+curl -s http://127.0.0.1:7710/geo/stats -H "Authorization: Bearer $TOKEN" | grep -o '"postgis":[a-z]*'
+
+# Lao Data Map export → admin version (property keys are configurable; run `check` first)
+cd /mnt/c/laragon/www/BST-Social-Lens/services/lens-api && . ~/lens-api-local/venv/bin/activate
+python scripts/geo_import.py convert --provinces P.geojson --districts D.geojson --villages V.geojson \
+       --version laodatamap-2026.09 --out /tmp/admin.json [--code-key … --name-lo-key … --parent-key …]
+python scripts/geo_import.py check --file /tmp/admin.json
+python scripts/geo_import.py post  --file /tmp/admin.json --source-ref laodatamap@<commit>   # 409 = already imported
+curl -s -X POST "http://127.0.0.1:7710/admin/extract?force=1" -H "Authorization: Bearer $TOKEN"   # re-resolve locations
+```
+
+Without PostGIS the text path still works (centroids); point rows carry `no_polygons`. With it, pins resolve through
+`ST_Within` (`st_within:<code>` signal) and `geo.resolved_locations.geom` is populated for the later `/nearby`.
+
 ## 3. Load the extension
 
 Edge: `edge://extensions` → enable **Developer mode** → **Load unpacked** → `dist/edge-mv3`.

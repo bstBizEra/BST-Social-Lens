@@ -1,36 +1,333 @@
 {
   "admin_version": "sample-2026.09",
-  "_note": "SAMPLE gazetteer for tests only. Codes are placeholders; the real import comes from BST Lao Data Map (001D D4) and its codes are used as-is. Centroids are approximate.",
+  "_note": "SAMPLE gazetteer for tests only. Codes are placeholders; the real import comes from BST Lao Data Map (001D D4) and its codes are used as-is. Centroids are approximate. Three placeholder rectangles (P-VTE, D-VTE-XTN, V-XTN-DDK) exist only to exercise the PostGIS point path.",
   "provinces": [
-    {"code": "P-VTE", "name_lo": "ນະຄອນຫຼວງວຽງຈັນ", "name_en": "Vientiane Capital", "name_variants": ["ນະຄອນຫຼວງ", "ວຽງຈັນ", "Vientiane"], "centroid_lat": 18.05, "centroid_lng": 102.7},
-    {"code": "P-VTP", "name_lo": "ແຂວງວຽງຈັນ", "name_en": "Vientiane Province", "name_variants": ["ວຽງຈັນ"], "centroid_lat": 18.7, "centroid_lng": 102.5},
-    {"code": "P-CPS", "name_lo": "ຈຳປາສັກ", "name_en": "Champasak", "name_variants": ["ຈໍາປາສັກ", "Champassak"], "centroid_lat": 14.9, "centroid_lng": 105.9},
-    {"code": "P-LPB", "name_lo": "ຫຼວງພະບາງ", "name_en": "Luang Prabang", "name_variants": ["ຫລວງພະບາງ", "Louangphabang"], "centroid_lat": 19.9, "centroid_lng": 102.1},
-    {"code": "P-SVK", "name_lo": "ສະຫວັນນະເຂດ", "name_en": "Savannakhet", "name_variants": [], "centroid_lat": 16.6, "centroid_lng": 105.5}
+    {
+      "code": "P-VTE",
+      "name_lo": "ນະຄອນຫຼວງວຽງຈັນ",
+      "name_en": "Vientiane Capital",
+      "name_variants": [
+        "ນະຄອນຫຼວງ",
+        "ວຽງຈັນ",
+        "Vientiane"
+      ],
+      "centroid_lat": 18.05,
+      "centroid_lng": 102.7,
+      "geom": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              102.4,
+              17.8
+            ],
+            [
+              103.0,
+              17.8
+            ],
+            [
+              103.0,
+              18.4
+            ],
+            [
+              102.4,
+              18.4
+            ],
+            [
+              102.4,
+              17.8
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "code": "P-VTP",
+      "name_lo": "ແຂວງວຽງຈັນ",
+      "name_en": "Vientiane Province",
+      "name_variants": [
+        "ວຽງຈັນ"
+      ],
+      "centroid_lat": 18.7,
+      "centroid_lng": 102.5
+    },
+    {
+      "code": "P-CPS",
+      "name_lo": "ຈຳປາສັກ",
+      "name_en": "Champasak",
+      "name_variants": [
+        "ຈໍາປາສັກ",
+        "Champassak"
+      ],
+      "centroid_lat": 14.9,
+      "centroid_lng": 105.9
+    },
+    {
+      "code": "P-LPB",
+      "name_lo": "ຫຼວງພະບາງ",
+      "name_en": "Luang Prabang",
+      "name_variants": [
+        "ຫລວງພະບາງ",
+        "Louangphabang"
+      ],
+      "centroid_lat": 19.9,
+      "centroid_lng": 102.1
+    },
+    {
+      "code": "P-SVK",
+      "name_lo": "ສະຫວັນນະເຂດ",
+      "name_en": "Savannakhet",
+      "name_variants": [],
+      "centroid_lat": 16.6,
+      "centroid_lng": 105.5
+    }
   ],
   "districts": [
-    {"code": "D-VTE-CHB", "province_code": "P-VTE", "name_lo": "ຈັນທະບູລີ", "name_en": "Chanthabouly", "name_variants": ["Chanthabuly"], "centroid_lat": 17.97, "centroid_lng": 102.61},
-    {"code": "D-VTE-SKB", "province_code": "P-VTE", "name_lo": "ສີໂຄດຕະບອງ", "name_en": "Sikhottabong", "name_variants": [], "centroid_lat": 17.96, "centroid_lng": 102.55},
-    {"code": "D-VTE-XST", "province_code": "P-VTE", "name_lo": "ໄຊເສດຖາ", "name_en": "Xaysetha", "name_variants": ["Saysettha"], "centroid_lat": 17.98, "centroid_lng": 102.66},
-    {"code": "D-VTE-SSN", "province_code": "P-VTE", "name_lo": "ສີສັດຕະນາກ", "name_en": "Sisattanak", "name_variants": [], "centroid_lat": 17.94, "centroid_lng": 102.62},
-    {"code": "D-VTE-XTN", "province_code": "P-VTE", "name_lo": "ໄຊທານີ", "name_en": "Xaythany", "name_variants": ["Saythany"], "centroid_lat": 18.08, "centroid_lng": 102.72},
-    {"code": "D-VTE-HXF", "province_code": "P-VTE", "name_lo": "ຫາດຊາຍຟອງ", "name_en": "Hadxaifong", "name_variants": [], "centroid_lat": 17.91, "centroid_lng": 102.68},
-    {"code": "D-VTE-NXT", "province_code": "P-VTE", "name_lo": "ນາຊາຍທອງ", "name_en": "Naxaithong", "name_variants": [], "centroid_lat": 18.14, "centroid_lng": 102.49},
-    {"code": "D-VTP-VVG", "province_code": "P-VTP", "name_lo": "ວັງວຽງ", "name_en": "Vangvieng", "name_variants": ["Vang Vieng"], "centroid_lat": 18.92, "centroid_lng": 102.45},
-    {"code": "D-CPS-PKS", "province_code": "P-CPS", "name_lo": "ປາກເຊ", "name_en": "Pakse", "name_variants": ["Pakxe"], "centroid_lat": 15.12, "centroid_lng": 105.78},
-    {"code": "D-LPB-LPB", "province_code": "P-LPB", "name_lo": "ຫຼວງພະບາງ", "name_en": "Luang Prabang", "name_variants": [], "centroid_lat": 19.89, "centroid_lng": 102.13}
+    {
+      "code": "D-VTE-CHB",
+      "province_code": "P-VTE",
+      "name_lo": "ຈັນທະບູລີ",
+      "name_en": "Chanthabouly",
+      "name_variants": [
+        "Chanthabuly"
+      ],
+      "centroid_lat": 17.97,
+      "centroid_lng": 102.61
+    },
+    {
+      "code": "D-VTE-SKB",
+      "province_code": "P-VTE",
+      "name_lo": "ສີໂຄດຕະບອງ",
+      "name_en": "Sikhottabong",
+      "name_variants": [],
+      "centroid_lat": 17.96,
+      "centroid_lng": 102.55
+    },
+    {
+      "code": "D-VTE-XST",
+      "province_code": "P-VTE",
+      "name_lo": "ໄຊເສດຖາ",
+      "name_en": "Xaysetha",
+      "name_variants": [
+        "Saysettha"
+      ],
+      "centroid_lat": 17.98,
+      "centroid_lng": 102.66
+    },
+    {
+      "code": "D-VTE-SSN",
+      "province_code": "P-VTE",
+      "name_lo": "ສີສັດຕະນາກ",
+      "name_en": "Sisattanak",
+      "name_variants": [],
+      "centroid_lat": 17.94,
+      "centroid_lng": 102.62
+    },
+    {
+      "code": "D-VTE-XTN",
+      "province_code": "P-VTE",
+      "name_lo": "ໄຊທານີ",
+      "name_en": "Xaythany",
+      "name_variants": [
+        "Saythany"
+      ],
+      "centroid_lat": 18.08,
+      "centroid_lng": 102.72,
+      "geom": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              102.6,
+              18.0
+            ],
+            [
+              102.8,
+              18.0
+            ],
+            [
+              102.8,
+              18.2
+            ],
+            [
+              102.6,
+              18.2
+            ],
+            [
+              102.6,
+              18.0
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "code": "D-VTE-HXF",
+      "province_code": "P-VTE",
+      "name_lo": "ຫາດຊາຍຟອງ",
+      "name_en": "Hadxaifong",
+      "name_variants": [],
+      "centroid_lat": 17.91,
+      "centroid_lng": 102.68
+    },
+    {
+      "code": "D-VTE-NXT",
+      "province_code": "P-VTE",
+      "name_lo": "ນາຊາຍທອງ",
+      "name_en": "Naxaithong",
+      "name_variants": [],
+      "centroid_lat": 18.14,
+      "centroid_lng": 102.49
+    },
+    {
+      "code": "D-VTP-VVG",
+      "province_code": "P-VTP",
+      "name_lo": "ວັງວຽງ",
+      "name_en": "Vangvieng",
+      "name_variants": [
+        "Vang Vieng"
+      ],
+      "centroid_lat": 18.92,
+      "centroid_lng": 102.45
+    },
+    {
+      "code": "D-CPS-PKS",
+      "province_code": "P-CPS",
+      "name_lo": "ປາກເຊ",
+      "name_en": "Pakse",
+      "name_variants": [
+        "Pakxe"
+      ],
+      "centroid_lat": 15.12,
+      "centroid_lng": 105.78
+    },
+    {
+      "code": "D-LPB-LPB",
+      "province_code": "P-LPB",
+      "name_lo": "ຫຼວງພະບາງ",
+      "name_en": "Luang Prabang",
+      "name_variants": [],
+      "centroid_lat": 19.89,
+      "centroid_lng": 102.13
+    }
   ],
   "villages": [
-    {"code": "V-XTN-NSP", "district_code": "D-VTE-XTN", "province_code": "P-VTE", "name_lo": "ນາສ້າງໄຜ່", "name_en": "Nasangphai", "name_variants": [], "centroid_lat": 18.06, "centroid_lng": 102.70},
-    {"code": "V-XTN-DDK", "district_code": "D-VTE-XTN", "province_code": "P-VTE", "name_lo": "ດົງໂດກ", "name_en": "Dongdok", "name_variants": [], "centroid_lat": 18.05, "centroid_lng": 102.66},
-    {"code": "V-CHB-PTG", "district_code": "D-VTE-CHB", "province_code": "P-VTE", "name_lo": "ໂພນຕ້ອງ", "name_en": "Phonthong", "name_variants": [], "centroid_lat": 17.99, "centroid_lng": 102.60},
-    {"code": "V-XST-PTG", "district_code": "D-VTE-XST", "province_code": "P-VTE", "name_lo": "ໂພນຕ້ອງ", "name_en": "Phonthong", "name_variants": [], "centroid_lat": 17.99, "centroid_lng": 102.67},
-    {"code": "V-XST-PXY", "district_code": "D-VTE-XST", "province_code": "P-VTE", "name_lo": "ໂພນໄຊ", "name_en": "Phonxay", "name_variants": [], "centroid_lat": 17.98, "centroid_lng": 102.64},
-    {"code": "V-SSN-DPL", "district_code": "D-VTE-SSN", "province_code": "P-VTE", "name_lo": "ດົງປາລານ", "name_en": "Dongpalan", "name_variants": [], "centroid_lat": 17.95, "centroid_lng": 102.63},
-    {"code": "V-SKB-WTY", "district_code": "D-VTE-SKB", "province_code": "P-VTE", "name_lo": "ວັດໄຕ", "name_en": "Wattay", "name_variants": ["Vattay"], "centroid_lat": 17.98, "centroid_lng": 102.56},
-    {"code": "V-HXF-TDA", "district_code": "D-VTE-HXF", "province_code": "P-VTE", "name_lo": "ທ່າເດື່ອ", "name_en": "Thadeua", "name_variants": [], "centroid_lat": 17.88, "centroid_lng": 102.72}
+    {
+      "code": "V-XTN-NSP",
+      "district_code": "D-VTE-XTN",
+      "province_code": "P-VTE",
+      "name_lo": "ນາສ້າງໄຜ່",
+      "name_en": "Nasangphai",
+      "name_variants": [],
+      "centroid_lat": 18.06,
+      "centroid_lng": 102.7
+    },
+    {
+      "code": "V-XTN-DDK",
+      "district_code": "D-VTE-XTN",
+      "province_code": "P-VTE",
+      "name_lo": "ດົງໂດກ",
+      "name_en": "Dongdok",
+      "name_variants": [],
+      "centroid_lat": 18.05,
+      "centroid_lng": 102.66,
+      "geom": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [
+              102.65,
+              18.04
+            ],
+            [
+              102.672,
+              18.04
+            ],
+            [
+              102.672,
+              18.06
+            ],
+            [
+              102.65,
+              18.06
+            ],
+            [
+              102.65,
+              18.04
+            ]
+          ]
+        ]
+      }
+    },
+    {
+      "code": "V-CHB-PTG",
+      "district_code": "D-VTE-CHB",
+      "province_code": "P-VTE",
+      "name_lo": "ໂພນຕ້ອງ",
+      "name_en": "Phonthong",
+      "name_variants": [],
+      "centroid_lat": 17.99,
+      "centroid_lng": 102.6
+    },
+    {
+      "code": "V-XST-PTG",
+      "district_code": "D-VTE-XST",
+      "province_code": "P-VTE",
+      "name_lo": "ໂພນຕ້ອງ",
+      "name_en": "Phonthong",
+      "name_variants": [],
+      "centroid_lat": 17.99,
+      "centroid_lng": 102.67
+    },
+    {
+      "code": "V-XST-PXY",
+      "district_code": "D-VTE-XST",
+      "province_code": "P-VTE",
+      "name_lo": "ໂພນໄຊ",
+      "name_en": "Phonxay",
+      "name_variants": [],
+      "centroid_lat": 17.98,
+      "centroid_lng": 102.64
+    },
+    {
+      "code": "V-SSN-DPL",
+      "district_code": "D-VTE-SSN",
+      "province_code": "P-VTE",
+      "name_lo": "ດົງປາລານ",
+      "name_en": "Dongpalan",
+      "name_variants": [],
+      "centroid_lat": 17.95,
+      "centroid_lng": 102.63
+    },
+    {
+      "code": "V-SKB-WTY",
+      "district_code": "D-VTE-SKB",
+      "province_code": "P-VTE",
+      "name_lo": "ວັດໄຕ",
+      "name_en": "Wattay",
+      "name_variants": [
+        "Vattay"
+      ],
+      "centroid_lat": 17.98,
+      "centroid_lng": 102.56
+    },
+    {
+      "code": "V-HXF-TDA",
+      "district_code": "D-VTE-HXF",
+      "province_code": "P-VTE",
+      "name_lo": "ທ່າເດື່ອ",
+      "name_en": "Thadeua",
+      "name_variants": [],
+      "centroid_lat": 17.88,
+      "centroid_lng": 102.72
+    }
   ],
   "aliases": [
-    {"level": "village", "code": "V-XTN-NSP", "alias": "ນາສ້າງໄຜ", "source": "SEED"}
+    {
+      "level": "village",
+      "code": "V-XTN-NSP",
+      "alias": "ນາສ້າງໄຜ",
+      "source": "SEED"
+    }
   ]
 }

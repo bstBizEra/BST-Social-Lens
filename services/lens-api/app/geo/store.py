@@ -60,6 +60,11 @@ class GeoStore:
                     )
                 if make_current:
                     await con.execute("UPDATE geo.admin_versions SET is_current = (admin_version = $1)", version)
+                if getattr(self.db, "postgis", False):  # populate geometry now; startup backfill covers versions imported before G1
+                    for tbl in ("provinces", "districts", "villages"):
+                        await con.execute(
+                            f"UPDATE geo.{tbl} SET geom = ST_Multi(ST_SetSRID(ST_GeomFromGeoJSON(geom_geojson::text), 4326)) "
+                            "WHERE admin_version = $1 AND geom IS NULL AND geom_geojson IS NOT NULL", version)
         self._gaz = None  # reload on next use
         return {"admin_version": version, "checksum": checksum, "provinces": len(payload["provinces"]), "districts": len(payload["districts"]),
                 "villages": len(payload["villages"]), "aliases": len(payload.get("aliases") or []), "is_current": make_current}
@@ -100,7 +105,17 @@ class GeoStore:
                 r.province_code, r.district_code, r.village_code, r.lat, r.lng, r.precision, r.point_source, r.confidence,
                 r.resolver_method, r.resolver_version, r.is_primary, _j(r.signals), r.review_status,
             )
+        if resolutions and getattr(self.db, "postgis", False):
+            await con.execute("UPDATE geo.resolved_locations SET geom = ST_SetSRID(ST_MakePoint(lng, lat), 4326) WHERE observation_id = $1 AND geom IS NULL AND lat IS NOT NULL", observation_id)
         return len(resolutions)
+
+    async def admin_for_point(self, lat: float, lng: float) -> dict[str, Any] | None:
+        """PostGIS point-in-polygon against the current admin version (001D §4.1 step 3). None when PostGIS is absent."""
+        if not getattr(self.db, "postgis", False):
+            return None
+        async with self.db.pool.acquire() as con:
+            row = await con.fetchrow("SELECT * FROM geo.point_in_admin($1, $2)", lat, lng)
+        return dict(row) if row and (row["province_code"] or row["district_code"] or row["village_code"]) else {"admin_version": row["admin_version"] if row else None}
 
     async def locations_for(self, observation_id: int) -> list[dict[str, Any]]:
         async with self.db.pool.acquire() as con:
@@ -135,6 +150,7 @@ class GeoStore:
         t = dict(totals)
         n = t["observations_with_location"] or 0
         return {
+            "postgis": bool(getattr(self.db, "postgis", False)),
             "admin_version": dict(version) if version else None,
             "gazetteer": dict(counts),
             **t,

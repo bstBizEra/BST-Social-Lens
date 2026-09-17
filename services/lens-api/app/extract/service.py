@@ -9,7 +9,7 @@ from typing import Any
 from .fields import METHOD, RULES_VERSION
 from .keywords import KEYWORD_GROUPS_VERSION
 from .rules import extract_observation
-from ..geo.resolver import resolve as resolve_locations
+from ..geo.resolver import apply_polygon_lookup, resolve as resolve_locations
 
 log = logging.getLogger("lens-api.extract")
 FX_CURRENCIES = ("USD", "THB")
@@ -45,6 +45,12 @@ async def run_extraction(
             fx = lambda cur, d, _c=fx_cache: _c.get((cur, d))  # noqa: E731
             obs = extract_observation(rec.get("text"), rec.get("record_type") or "post", rec.get("author_name"), post_date, fx=fx, contact_salt=contact_salt)
             resolutions = resolve_locations(obs.claims, gaz) if geo is not None else None
+            if resolutions and getattr(getattr(geo, "db", None), "postgis", False):
+                lookups = {}
+                for i, r in enumerate(resolutions):
+                    if r.point_source in ("MAP_URL", "TEXT_COORDINATE") and r.lat is not None and r.lng is not None:
+                        lookups[i] = await geo.admin_for_point(r.lat, r.lng)
+                apply_polygon_lookup(resolutions, lookups)
             _, n = await store.insert_observation(run_id, rec, obs, pgcrypto, resolutions, geo, gaz.admin_version if gaz else None)
             observations_out += 1
             claims_out += n

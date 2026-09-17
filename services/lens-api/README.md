@@ -137,6 +137,8 @@ Gazetteer = the current `geo.admin_versions` row (immutable copies of the BST La
 | `GET /geo/stats` | current version, gazetteer size, primary precision distribution, `precision_assigned_share` (001D §9.5 — must be 1.0), unresolved share |
 | `GET /geo/resolve?text=` | dry run, no write |
 
+PostGIS (G1): `scripts/install-postgis.sh` on the cluster, then restart — `schema_postgis.sql` is applied automatically when the extension exists and pins resolve via `ST_Within`. Lao Data Map: `scripts/geo_import.py convert|check|post`.
+
 Golden sets (C5): `python scripts/golden.py export --out DIR --limit 120` writes masked CSVs to label; `python scripts/golden.py build --records … --locations …` writes the fixtures the gates read (`tests/fixtures/extract/golden-v1.jsonl`, `tests/fixtures/geo/golden-v1.jsonl`).
 
 ## Entity resolution — `app/resolution/` (Phase 7, 001E) — pure modules

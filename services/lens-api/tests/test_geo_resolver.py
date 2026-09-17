@@ -160,3 +160,30 @@ def test_golden_locations_gate(gaz):
     assert assigned == len(rows)
     assert district_n == 0 or district_ok / district_n >= 0.85
     assert village_n == 0 or village_ok / village_n >= 0.70
+
+
+# ---------------------------------------------------------------- PostGIS point path (pure part: applying a point_in_admin row)
+
+def test_apply_polygon_lookup_fills_codes_and_reconciles(gaz):
+    from app.geo.resolver import apply_polygon_lookup
+
+    rs = run("ຂາຍດິນ ບ້ານດົງໂດກ https://maps.google.com/?q=18.052,102.661", gaz)
+    i = next(k for k, r in enumerate(rs) if r.point_source == "MAP_URL")
+    apply_polygon_lookup(rs, {i: {"admin_version": "x", "province_code": "P-VTE", "district_code": "D-VTE-XTN", "village_code": "V-XTN-DDK"}})
+    assert rs[i].village_code == "V-XTN-DDK" and "st_within:V-XTN-DDK" in rs[i].signals and "no_polygons" not in rs[i].signals
+    t = next(r for r in rs if r.point_source != "MAP_URL")
+    assert "point_text_agree" in t.signals
+    # polygon says a different district than the text → conflict, text confidence lowered
+    rs2 = run("ຂາຍດິນ ບ້ານດົງໂດກ https://maps.google.com/?q=18.052,102.661", gaz)
+    j = next(k for k, r in enumerate(rs2) if r.point_source == "MAP_URL")
+    apply_polygon_lookup(rs2, {j: {"admin_version": "x", "province_code": "P-CPS", "district_code": "D-CPS-PKS", "village_code": None}})
+    t2 = next(r for r in rs2 if r.point_source != "MAP_URL")
+    assert "conflict_text_vs_point" in t2.signals and rs2[j].district_code == "D-CPS-PKS"
+    # point outside every polygon: marker only, no codes
+    rs3 = run("ດິນ https://maps.google.com/?q=18.05,102.66 ຂາຍ", gaz)
+    apply_polygon_lookup(rs3, {0: {"admin_version": "x", "province_code": None, "district_code": None, "village_code": None}})
+    assert "point_outside_admin_polygons" in rs3[0].signals and rs3[0].village_code is None
+    # None lookup (PostGIS absent) leaves the row untouched
+    rs4 = run("ດິນ https://maps.google.com/?q=18.05,102.66 ຂາຍ", gaz)
+    apply_polygon_lookup(rs4, {0: None})
+    assert "no_polygons" in rs4[0].signals
