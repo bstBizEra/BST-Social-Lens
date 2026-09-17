@@ -14,7 +14,8 @@ import asyncpg
 
 SCHEMA_PATH = pathlib.Path(__file__).with_name("schema.sql")
 # L2 schemas are separate files, applied after the core schema; schema_lint keeps them additive.
-L2_SCHEMA_PATHS = [pathlib.Path(__file__).with_name("schema_extract.sql"), pathlib.Path(__file__).with_name("schema_geo.sql"), pathlib.Path(__file__).with_name("schema_audit.sql")]
+L2_SCHEMA_PATHS = [pathlib.Path(__file__).with_name("schema_extract.sql"), pathlib.Path(__file__).with_name("schema_geo.sql"), pathlib.Path(__file__).with_name("schema_audit.sql"),
+                   pathlib.Path(__file__).with_name("schema_housekeeping.sql")]
 POSTGIS_SCHEMA_PATH = pathlib.Path(__file__).with_name("schema_postgis.sql")  # applied only when postgis is installed
 MARKET_SCHEMA_PATH = pathlib.Path(__file__).with_name("schema_market.sql")    # 001F draft: applied only when enable_market (LENS_RESOLUTION_ENABLED=1)
 

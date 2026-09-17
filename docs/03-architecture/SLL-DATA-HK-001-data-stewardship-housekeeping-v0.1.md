@@ -2,7 +2,7 @@
 
 - Parent: `SLL-PROP-DATA-001` (frozen) · Boundary: `001A` (frozen; layers L0–L3 and invariants I1–I10 apply unchanged) · Siblings: 001B–001H (this contract observes them, never overrides them)
 - Status: **Draft** (2026-09-18). Freezes when §11 holds for four consecutive weeks on the live service.
-- Implementation state: §6 watermarks, §7 reconciliation and §8 finding detection implemented **read-only** (`services/lens-api/app/housekeeping/`, `GET /housekeeping/status`, MCP `housekeeping_status`); §9 actions, §10 `housekeeping.*` DDL and the Control Center pending.
+- Implementation state: §6 watermarks, §7 reconciliation, §8 findings and §10 `housekeeping.*` DDL implemented (`services/lens-api/app/housekeeping/`; loop `LENS_HK_INTERVAL_MIN`, `GET /housekeeping/status`, `GET /housekeeping/findings`, `POST /admin/housekeeping/run`, MCP `housekeeping_status`/`housekeeping_findings`); §5 `GET /lineage/{id}` + MCP `lineage` implemented over existing keys; §9 Actor (safe actions) and the Control Center pending. Lineage node payload: job/version/run, counts, states — never text or contacts.
 - Origin: operator-accepted recommendation (2026-09-18) to add a permanent stewardship control plane around the 001 pipeline rather than more extraction features.
 
 ## 1. Purpose
@@ -92,7 +92,7 @@ Surfaces: `GET /housekeeping/status` (watermarks, reconciliation, open findings,
 
 Operational state per observation/property, derived from `last_observed`: `CURRENT` (0–30 d), `AGING` (31–90 d), `STALE` (91–180 d), `HISTORICAL` (> 180 d); plus `WITHDRAWN` (source gone, 001B signal) and `SUPERSEDED` (001F merge). State changes never delete evidence; they gate publication eligibility (001H) and stats windows. Thresholds are a starting policy to be calibrated on Lao market behaviour (Q3).
 
-`housekeeping.*` (draft, unapplied until the read-only surfaces have run for two weeks): `runs`, `findings`, `actions`, `watermarks` (latest per stage, history in `runs`), `quarantine`, `lifecycle_states` (append-only state transitions with reason). Schema-lint rules apply (append-only, `supersedes_*` on state tables, no fact-like columns).
+`housekeeping.*` (`app/schema_housekeeping.sql`, applied at startup like `audit`): `runs`, `watermarks` (latest per stage, history via `runs`), `checks` (one row per check per run), `findings` (identity `(finding_type, entity_type, entity_id)`; re-detection updates `last_seen_run_id`/`count`/`observed_state` in place — a documented exception to the no-update rule because findings are Housekeeper state, not evidence; disappearance sets `RESOLVED`, rows are never deleted), `actions` (populated by the §9 Actor), `quarantine`, `lifecycle_states` (append-only, superseding). Schema-lint clean.
 
 ## 11. Acceptance gate (freeze criteria)
 
