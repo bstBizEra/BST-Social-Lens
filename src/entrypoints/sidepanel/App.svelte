@@ -57,14 +57,14 @@
   const exportRaw = (platform?: Platform) =>
     run('Export raw', () => send<{ count: number; filename: string }>({ type: 'exportRaw', platform }), (r) => `Saved ${r.count} raw payloads → ${r.filename}`);
 
-  type SyncResult = { pushed: number; error?: string; pushedRaw?: number; rawRejected?: number; rawSkipped?: number; rawRemaining?: number; rawError?: string; rawNote?: string };
+  type SyncResult = { pushed: number; error?: string; pushedRaw?: number; rawRejected?: number; rawSkipped?: number; rawRemaining?: number; rawRequeued?: number; rawError?: string; rawNote?: string };
   function fmtSync(r: SyncResult) {
     if (r.error) return `Sync error: ${r.error}`;
     const raw = r.rawError
       ? `raw: error ${r.rawError}`
       : r.rawNote
         ? `raw: ${r.rawNote}`
-        : `raw: ${r.pushedRaw ?? 0} pushed${r.rawRejected ? `, ${r.rawRejected} rejected` : ''}${r.rawSkipped ? `, ${r.rawSkipped} too large` : ''}${r.rawRemaining ? `, ${r.rawRemaining} pending` : ''}`;
+        : `raw: ${r.pushedRaw ?? 0} pushed${r.rawRejected ? `, ${r.rawRejected} rejected` : ''}${r.rawSkipped ? `, ${r.rawSkipped} too large` : ''}${r.rawRemaining ? `, ${r.rawRemaining} pending` : ''}${r.rawRequeued ? `, ${r.rawRequeued} re-requested by server` : ''}`;
     return `Pushed ${r.pushed} records · ${raw}`;
   }
   const sync = () => run('Sync', () => send<SyncResult>({ type: 'sync' }), fmtSync);

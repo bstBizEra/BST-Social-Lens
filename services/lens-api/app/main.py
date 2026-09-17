@@ -25,6 +25,7 @@ Endpoints
   GET  /quality/stats    DQ grade distribution + validation exceptions over current observations (bearer auth) — 001G
   GET  /housekeeping/status  watermarks · reconciliation · stage health · findings — SLL-DATA-HK-001
   GET  /housekeeping/findings?type=&status=&severity=  persisted findings; POST /admin/housekeeping/run?dry_run=  run now (loop: LENS_HK_INTERVAL_MIN, 30)
+  GET  /raw/needed       payload hashes missing raw evidence (extension re-sends on sync) — HK-001 §9
   GET  /lineage/{id}     lineage walk over payload → record → observation → location → decision → property → snapshot → dataset version
   POST /admin/quality/recompute?since=  new stats+DQ snapshot rows per ACTIVE property (flag on) — 001G §7
   --- only with LENS_RESOLUTION_ENABLED=1 (001E/001F draft schema; off in production until 001E freezes) ---
@@ -53,6 +54,7 @@ from .extract.service import run_extraction
 from .extract.store import ExtractStore, quality_stats
 from .housekeeping import housekeeping_status
 from .housekeeping.lineage import lineage as walk_lineage
+from .housekeeping.actor import Services as HkServices
 from .housekeeping.store import last_run as hk_last_run, list_findings as hk_list_findings, run_housekeeping
 from .geo.resolver import resolve as geo_resolve
 from .geo.store import GeoStore
@@ -85,6 +87,8 @@ CONTACT_KEY = os.environ.get("LENS_CONTACT_KEY") or None
 # Phase 7 (001E) — resolution loop; the 001F draft schema is applied only when this flag is on.
 RESOLUTION_ENABLED = resolution_enabled()
 HK_INTERVAL_MIN = int(os.environ.get("LENS_HK_INTERVAL_MIN", "30"))
+HK_MAX_ACTIONS = int(os.environ.get("LENS_HK_MAX_ACTIONS", "500"))
+HK_ACT = os.environ.get("LENS_HK_ACT", "1") not in ("0", "false", "no")  # 0 = observe only (findings, no safe actions)
 RESOLVE_INTERVAL_MIN = int(os.environ.get("LENS_RESOLVE_INTERVAL_MIN", "30"))
 
 log = logging.getLogger("lens-api")
@@ -109,9 +113,22 @@ async def _resolve_once(trigger: str, force: bool = False) -> dict:
 _hk_lock = asyncio.Lock()
 
 
+def _hk_services() -> HkServices | None:
+    if not HK_ACT:
+        return None
+
+    async def purge() -> dict:
+        n_raw = await db.purge_raw_bodies(RAW_BODY_RETENTION_DAYS)
+        res = await db.purge_records(RETENTION_DAYS)
+        return {"raw_bodies_purged": n_raw, **res}
+
+    return HkServices(reextract=lambda: _extract_once("housekeeper", limit=HK_MAX_ACTIONS),
+                      recompute=(lambda: resolution_store.recompute_snapshots()) if RESOLUTION_ENABLED else None, purge=purge)
+
+
 async def _hk_once(trigger: str, dry_run: bool = False) -> dict:
     async with _hk_lock:  # single-flight (HK-001 §9)
-        return await run_housekeeping(db, trigger=trigger, dry_run=dry_run, **_hk_config())
+        return await run_housekeeping(db, trigger=trigger, dry_run=dry_run, services=_hk_services(), max_actions=HK_MAX_ACTIONS, **_hk_config())
 
 
 async def _hk_loop() -> None:
@@ -180,7 +197,7 @@ async def lifespan(app: FastAPI):
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.6", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.7", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -438,6 +455,16 @@ async def housekeeping_findings(type: str | None = None, status: str | None = No
 async def admin_housekeeping_run(dry_run: bool = Query(default=False)) -> dict:
     """Run the Housekeeper now (observe → measure → reconcile → classify → persist). dry_run=1 computes without persisting findings."""
     return await _hk_once("admin", dry_run)
+
+
+@app.get("/raw/needed", dependencies=[Depends(require_token)])
+async def raw_needed(limit: int = Query(default=200, ge=1, le=1000)) -> dict:
+    """HK-001 §9 MARK_RAW_NEEDED: payload hashes the server holds records for but no raw capture. The extension re-sends
+    the bodies it still has on its next sync; rows clear once the capture arrives."""
+    async with db.pool.acquire() as con:
+        await con.execute("DELETE FROM housekeeping.raw_needed n WHERE EXISTS (SELECT 1 FROM raw_captures c WHERE c.payload_hash=n.payload_hash)")
+        rows = await con.fetch("UPDATE housekeeping.raw_needed SET served_count=served_count+1 WHERE payload_hash IN (SELECT payload_hash FROM housekeeping.raw_needed ORDER BY asked_at LIMIT $1) RETURNING payload_hash", limit)
+    return {"payload_hashes": [r["payload_hash"] for r in rows], "count": len(rows)}
 
 
 @app.get("/lineage/{ident}", dependencies=[Depends(require_token)])

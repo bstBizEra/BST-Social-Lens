@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.6"}
+SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.7"}
 
 # JSON-RPC error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL = -32700, -32600, -32601, -32602, -32603

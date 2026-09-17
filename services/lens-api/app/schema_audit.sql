@@ -20,3 +20,11 @@ CREATE TABLE IF NOT EXISTS audit.events (
 CREATE INDEX IF NOT EXISTS idx_audit_item  ON audit.events (item_table, item_id);
 CREATE INDEX IF NOT EXISTS idx_audit_batch ON audit.events (batch_id) WHERE batch_id IS NOT NULL;
 CREATE INDEX IF NOT EXISTS idx_audit_at    ON audit.events (at DESC);
+
+-- HK-001 §4: every Housekeeper action is one audit row (actor 'system:housekeeper', role 'system', action 'HOUSEKEEP').
+-- Vocabulary widened additively: the original CHECKs are replaced by supersets (no rows become invalid).
+ALTER TABLE audit.events DROP CONSTRAINT IF EXISTS events_action_check;
+ALTER TABLE audit.events ADD CONSTRAINT events_action_check CHECK (action IN ('CONFIRM','CORRECT','REJECT','DEFER','MERGE','SPLIT','ALIAS','CONTACT_REVEAL','PUBLISH','WITHDRAW','ASSEMBLE','IMPORT','HOUSEKEEP'));
+ALTER TABLE audit.events DROP CONSTRAINT IF EXISTS events_queue_check;
+ALTER TABLE audit.events ADD CONSTRAINT events_queue_check CHECK (queue IN ('extraction','location','match','exceptions','publish','geo','contacts','housekeeping'));
+

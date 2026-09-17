@@ -116,3 +116,13 @@ CREATE TABLE IF NOT EXISTS housekeeping.lifecycle_states (
     supersedes_state_id BIGINT REFERENCES housekeeping.lifecycle_states (state_id)
 );
 CREATE INDEX IF NOT EXISTS idx_hk_lifecycle_entity ON housekeeping.lifecycle_states (entity_type, entity_id, state_id DESC);
+
+-- Raw evidence the server is missing for records it holds (§9 MARK_RAW_NEEDED). The extension reads GET /raw/needed on
+-- sync and re-sends bodies it still holds; a row clears when the raw capture arrives. Hashes only.
+CREATE TABLE IF NOT EXISTS housekeeping.raw_needed (
+    payload_hash    TEXT PRIMARY KEY,
+    run_id          BIGINT REFERENCES housekeeping.runs (run_id),
+    asked_at        TIMESTAMPTZ NOT NULL DEFAULT now(),
+    served_count    INTEGER NOT NULL DEFAULT 0
+);
+
