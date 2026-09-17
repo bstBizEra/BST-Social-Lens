@@ -1,7 +1,7 @@
 # SLL-PROP-DATA-001C — Property Extraction Contract v0.1
 
 - Parent: `SLL-PROP-DATA-001` (frozen) · Boundary: `001A` (frozen) · Capture: `001B` (frozen) · Roadmap: ADR-0005 Phase 6 → v0.8.0
-- Status: **Draft for freeze** (2026-09-17). Freezes with the first extraction PR that passes the golden-fixture gate (§10).
+- Status: **Draft for freeze** (2026-09-17). Freezes with the first extraction PR that passes the golden-fixture gate (§10). Implementation state: §4.3 + §5 + §6 + §7 tier 1 implemented in `services/lens-api/app/extract/` (RULE_V1 1.0.0, synthetic tests); §8 API/persistence pending 001F.
 - Contract family: **C02 Property Extraction** — *AI/extraction output is a claim, not automatically a fact*
 - Companion: `001D` Geo-Normalisation (location claims are defined here, resolved there)
 

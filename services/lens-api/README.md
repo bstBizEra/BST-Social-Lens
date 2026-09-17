@@ -110,6 +110,10 @@ Verified live on bizera-wsl 2026-09-17: 401 without token; initialize / tools/li
 
 `POST /raw` stores payloads keyed by SHA-256 (verified server-side; `LENS_RAW_MAX_BYTES`); `/ingest` records may carry `payload_hash`/`content_hash` and always produce a `capture_events` row. `GET /provenance/{key}` shows a record's sightings and whether its raw body is still present; `GET /provenance` reports coverage (Phase 5 exit metric).
 
+## Extraction rules — `app/extract/` (Phase 6, 001C)
+
+`extract_observation(text, record_type, author_name, post_date, fx, contact_salt)` → `Observation` (signal class, asset type, claims, price observations). Pure Python, deterministic, no I/O; `fx(currency, date)` is injected so LAK normalisation is testable. Keyword groups live in `app/extract/keywords.py` and are mirrored in the extension (parity-tested). Not yet exposed as an endpoint or persisted — that follows the `extract.*` DDL (001F subset). Tests: `tests/test_extract_rules.py`; the golden-fixture gate reads `tests/fixtures/extract/golden-v1.jsonl` when it exists.
+
 ## Retention (data minimisation, ordered)
 
 1. `LENS_RAW_RETENTION_DAYS` (default **90**) — raw payload bodies are nulled; the hash row stays forever.
