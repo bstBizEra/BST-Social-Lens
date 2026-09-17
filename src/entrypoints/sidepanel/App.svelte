@@ -174,7 +174,7 @@
   <h2>Keywords &amp; filtering</h2>
   {#if settings}
     <label>Include terms (comma or newline separated)
-      <input type="text" value={includeText} oninput={(e) => (includeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="ດິນ, ຂາຍ, ເຊົ່າ, ລາຄາ, ບ້ານ, ເມືອງ, ແຂວງ" />
+      <input type="text" value={includeText} oninput={(e) => (includeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="ດິນ, ຂາຍ, ເຊົ່າ, ລາຄາ, ເນື້ອທີ່, ບ້ານ, ເມືອງ, ແຂວງ, location, google map, lat, long" />
     </label>
     <label>Exclude terms
       <input type="text" value={excludeText} oninput={(e) => (excludeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="(optional)" />

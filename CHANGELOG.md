@@ -16,6 +16,7 @@ All notable changes to BST Social Lens are documented here. Format loosely follo
 - `src/lib/assist.ts`: pure, unit-tested allow-list (`classifyLabel`), navigation guard (`isSamePage`), picker (`pickExpanders`) and pacing. Deny-list blocks Join / Like / Share / Reply / Follow / See all / View post and Lao/Thai equivalents.
 - Run stops with reason `navigated` if the page URL changes (SPA pushState included); each element is clicked at most once per run (`ClickLedger`, reset on every Start); only elements on or just below the viewport are considered. `javascript:`/`data:` hrefs are never treated as in-page; a candidate must pass **both** control-semantics and label checks (no hint-only path).
 - Side panel shows "threads expanded" alongside the scroll count.
+- Default keyword set extended (OP-Vily, 2026-09-17): + ເນື້ອທີ່, location, google map, lat, long. Applies to fresh installs; existing installs edit *Include terms* in the panel.
 
 ### Changed
 - Extension → 0.6.0 (package.json, wxt manifest, package-lock). `Settings.assist` (default off) and `AutoProgress.clicks` added; `autoStart` relays both `autoRun` and `assist` config.

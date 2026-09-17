@@ -23,7 +23,9 @@ export interface KeywordSet {
 
 export const DEFAULT_KEYWORD_SET: KeywordSet = {
   name: 'real-estate-lao',
-  include: ['ດິນ', 'ຂາຍ', 'ເຊົ່າ', 'ລາຄາ', 'ບ້ານ', 'ເມືອງ', 'ແຂວງ'],
+  // Lao property terms + location cues. Matching is substring: 'lat'/'long' also hit
+  // 'flat'/'along' in English text — accepted for recall; tighten with min_hits if noisy.
+  include: ['ດິນ', 'ຂາຍ', 'ເຊົ່າ', 'ລາຄາ', 'ເນື້ອທີ່', 'ບ້ານ', 'ເມືອງ', 'ແຂວງ', 'location', 'google map', 'lat', 'long'],
   exclude: [],
   min_hits: 1,
   enabled: true,
