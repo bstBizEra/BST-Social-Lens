@@ -10,53 +10,79 @@ is a working aid, not evidence.
 
 | Field | Value |
 |---|---|
-| Snapshot observed at | 2026-09-17T01:37:57+07:00 (2026-09-16T18:37:57Z) |
-| Snapshot base SHA | `3190553` — `main` as observed when this snapshot was prepared ("Merge pull request #6 from bstBizEra/docs/adr-0004") |
-| Snapshot PR | #10 |
+| Snapshot observed at | 2026-09-17T16:07:21+07:00 (2026-09-17T09:07:21Z) |
+| Snapshot base SHA | `3189f51` — `main` as observed when this snapshot was prepared ("Merge pull request #18 from bstBizEra/feat/phase5-provenance") |
+| Snapshot PR | #19 |
+| Previous snapshot | base `3190553`, PR #10 |
 | Status scope | Repository state as observed at the snapshot base; PRs listed are those open at that moment |
-| Latest release | v0.5.0 — GitHub Release exists (extension 0.4.0 · parsers 0.3.0 · lens-api 0.3.0 · Console). Since the release, `main` also carries the parser-health CI (#9, `5dbe5bf`) and ADR-0004 (#6, `3190553`) |
-| Next release | v0.6.0 — extension 0.6.0 (Layer B assisted navigation), gated on PR #7 acceptance |
+| Latest release | v0.5.0 — GitHub Release exists (extension 0.4.0 · parsers 0.3.0 · lens-api 0.3.0 · Console). Since the release `main` carries: parser-health CI (#9), ADR-0004 (#6), STATUS snapshot (#10), runbook §2a + ops (#11–#13), MCP adapter (#15, lens-api 0.4.0), retention (#16), SLL-PROP-DATA-001/001A + ADR-0005 + ROADMAP (#17), Phase 5 capture & provenance (#18, lens-api 0.5.0, 001B) |
+| Next release | v0.7.0 — extension 0.7.0 = Phase 5 provenance (on `main`) + Layer B assisted navigation (PR #7, gated on A/B). Version fields on `main` still read 0.4.0; the bump lands with #7 (see *Release reconciliation*) |
+| Architecture baseline | `SLL-PROP-DATA-001` parent (frozen), `001A` Domain & Data Boundary v0.1 (frozen, D1–D7 adopted), `001B` Capture & Provenance Contract v0.1 (frozen at #18); ADR-0005 **Accepted** — Phases 5–9 in `docs/01-product-requirements/ROADMAP.md` |
 | Branch protection | Ruleset `main-protection` (active): PR required, conversation resolution, required checks `extension · check / test / build` + `lens-api · pytest` (strict), no force-push, no deletion, 0 approvals (no independent reviewer yet) |
-| CI | `.github/workflows/parser-health.yml` on `main` (merged via #9). Required checks now report on every PR; `lens-worker · pytest` is skipped (not green) while the worker is absent on the base |
+| CI | `.github/workflows/parser-health.yml` on `main`. Required checks report on every PR; `lens-worker · pytest` is skipped (not green) while the worker is absent on the base |
+| Deployment | lens-api runs container-free on bizera-wsl as `bst-lens-api.service` (systemd, runbook §2a) against local PostgreSQL; restarted on `3189f51` — Phase 5 schema applied additively at startup |
 
 ## SDLC gate status (AGENTS.md §5)
 
 | Gate | State | Evidence |
 |---|---|---|
-| 1–2 PRD / decomposition | pending | — |
-| 3 Architecture | done | ADR-0001 … ADR-0004 on `main` (`docs/03-architecture/README.md`) |
-| 4 Detailed design | done | `src/lib/types.ts` schema v1; `services/lens-api/app/schema.sql` |
-| 5 Security / compliance | pending | Lao EDPL 2017 mapping + ToS exposure register not yet authored; ADR-0004 §Context 2 (on `main`) records the legal posture as risk context |
-| 6 Implementation planning | pending | — |
-| 7 Development | active | extension 0.4.0 on `main`; 0.6.0 in PR #7; lens-worker spike in PR #8 |
-| 8 Engineering verification | active | `main` at base: 29 vitest (incl. parser-health replay) + 8 lens-api pytest, CI-enforced. With open PRs #7 + #8: 42 vitest + 8 lens-api + 16 lens-worker pytest |
+| 1–2 PRD / decomposition | active | `docs/01-product-requirements/ROADMAP.md` (ADR-0005 phases → releases); SLL-PROP-DATA-001 parent + 001A/001B on `main` |
+| 3 Architecture | done | ADR-0001 … ADR-0005 (`docs/03-architecture/README.md`); 001A frozen (L0–L3 layers, invariants I1–I10) |
+| 4 Detailed design | done for Phase 5 | `src/lib/types.ts` schema v1 (+ `payload_hash`/`content_hash`); `services/lens-api/app/schema.sql` (`raw_captures`, `capture_events`, provenance columns) |
+| 5 Security / compliance | **parked by owner decision** | Lao EDPL 2017 mapping + ToS exposure register not authored (PR #14 closed). ADR-0004 §Context 2 records the legal posture as risk context |
+| 6 Implementation planning | active | ROADMAP.md phase table; next unit 001C extraction (Phase 6) |
+| 7 Development | active | `main`: extension source at Phase 5 (version field 0.4.0), lens-api 0.5.0 (`/raw`, `/provenance`, `/mcp`, retention); 0.6.0 Layer B in PR #7; lens-worker spike in PR #8 |
+| 8 Engineering verification | active | `main` at base: 34 vitest passed + 1 skipped (incl. parser-health replay, provenance) + 16 lens-api pytest, CI-enforced. With open PRs #7 + #8: 47 vitest + 16 lens-api + 16 lens-worker pytest (observed on a temporary local merge, not on `main`) |
 | 9–14 | not started | — |
+
+## Phase 5 exit evidence (001B §8) — observed on the live service at base
+
+Run: `services/lens-api/scripts/phase5-smoke.sh` on bizera-wsl, 2026-09-17T09:07Z, against
+`bst-lens-api.service` running `3189f51` (fresh LensDB, 0 records before the run).
+
+| Check | Observed | Result |
+|---|---|---|
+| `POST /raw` new / duplicate / bad hash | `inserted:1` → `duplicate:1` → `rejected:1` with the hash echoed in `rejected_hashes` | pass |
+| `POST /ingest` with `payload_hash` → capture event | `GET /provenance/facebook:smoke-phase5-1`: `capture_count:1`, `first_payload_hash == last_payload_hash`, one event with `raw_present:true, body_present:true, body_bytes:46` | pass |
+| `GET /provenance` coverage | `records:1, records_resolved_to_raw:1, coverage:1.0` | pass (§8.1 requires the same on a 7-day capture sample — **pending**, needs extension 0.7.0 running with `sendRaw` on) |
+| `POST /admin/purge?raw_days=0&days=0` | `raw_bodies_purged:0, records:0, seen_links:0` | pass (§8.2 no-op) |
+| §8.3 sync latency within ± 10 % of v0.6.0 | not yet measured | **pending** (operator, with the 0.7.0 build) |
 
 ## Pull requests observed at snapshot
 
-Merged into the base since the previous snapshot: #9 `ci/parser-health` (merge `5dbe5bf`), #6 `docs/adr-0004` (merge `3190553`).
+Merged into the base since the previous snapshot: #10, #11, #12, #13, #15, #16, #17, #18
+(merge `3189f51`). Closed without merge: #14 (compliance register — parked).
 
 | PR | Branch | Head | Disposition | Acceptance contract |
 |---|---|---|---|---|
-| #10 | `docs/status-snapshot` | this PR | approve after governance revision (done) | snapshot semantics + offset timestamp + committed Podman evidence |
-| #7 | `feat/assisted-navigation` | `8161af7` | code approved (review rounds 1–2); operational acceptance pending | Lao-group A/B: assist off vs on, ≥ 2× comment records, both counts reported on the PR |
-| #8 | `spike/layer-c-worker` | `ac7bc55` | code approved; **evidence hold** | Evidence gate GO from a ≥ 50-target frontier run with LensDB baseline (`layer-c-report.json` attached to the PR); until then no `/ingest` or `/seen` writes are possible (machine-enforced) |
+| #19 | `docs/status-snapshot-phase5` | this PR | approve | snapshot refresh + committed smoke script |
+| #7 | `feat/assisted-navigation` | `bca3b7e` | code approved (review rounds 1–2); operational acceptance pending | Lao-group A/B: assist off vs on, ≥ 2× comment records, both counts reported on the PR |
+| #8 | `spike/layer-c-worker` | `ac7bc55` | code approved; **evidence hold** | Evidence gate GO from a ≥ 50-target frontier run with LensDB baseline (`layer-c-report.json` attached to the PR); no `/ingest` or `/seen` writes possible until then (machine-enforced) |
 
 ## Active evidence gates (at snapshot)
 
-1. **Layer B (PR #7)** — human-run A/B on a real Lao property group with the secondary account. Owner: OP-Vily. Blocked by: nothing (extension builds from the branch).
-2. **Layer C (PR #8)** — `python -m worker.run --limit 50` against a live lens-api; decision GO / NO-GO / INCONCLUSIVE computed by `services/lens-worker/worker/report.py` (sample ≥ 50 from frontier, block ≤ 20 %, usable ≥ 60 %, incremental value vs baseline). Blocked by: lens-api deployment (below).
+1. **Layer B (PR #7)** — human-run A/B on a real Lao property group with the secondary account. Owner: OP-Vily. Blocked by: nothing — operator build `dist/bst-social-lens-0.7.0-edge.zip` (Phase 5 + Layer B) is available locally; not committed.
+2. **Layer C (PR #8)** — `python -m worker.run --limit 50` against the live lens-api; decision GO / NO-GO / INCONCLUSIVE computed by `services/lens-worker/worker/report.py`. Blocked by: nothing on infrastructure any more (lens-api is live via systemd); needs an operator-run frontier.
+3. **Phase 5 §8.1 / §8.3** — 7-day coverage sample and latency comparison; owner OP-Vily, starts when 0.7.0 is loaded.
+
+## Release reconciliation
+
+`main` carries Phase 5 code but its version fields still read 0.4.0 (the 0.6.0 bump lives on
+PR #7). Decision: v0.6.0 is **skipped as a tag**; the next tag is **v0.7.0** cut after #7
+merges, with `package.json` / `wxt.config.ts` bumped to 0.7.0 in that merge (or a one-line
+follow-up). The `CHANGELOG.md` 0.6.0 section is folded into 0.7.0 at that time.
 
 ## Blockers
 
 | Blocker | Impact | Evidence class | Reference |
 |---|---|---|---|
-| Podman networking on bizera-wsl (slirp4netns `/dev/net/tun`; netavark iptables on WSL2 kernel 6.6.114) | lens-api + LensDB not deployed → no ingest sync, no Console on live data, Layer C experiment cannot run | **Operator-reported, sanitised** — committed transcription of the operator's local note; raw logs remain external to the repository | `docs/10-release-production/evidence/2026-09-16-podman-networking.md` · `docs/10-release-production/deploy-runbook.md` |
+| Podman networking on bizera-wsl (slirp4netns `/dev/net/tun`; netavark iptables on WSL2 kernel 6.6.114) | Compose path unusable; **mitigated** by the container-free systemd run (runbook §2a). No longer blocks ingest, Console, or Layer C | **Operator-reported, sanitised** | `docs/10-release-production/evidence/2026-09-16-podman-networking.md` · `docs/10-release-production/deploy-runbook.md` §2a |
 
 ## Authoritative references
 
-- Architecture: `docs/03-architecture/README.md` (ADR index)
-- Tests: `tests/` (vitest), `services/lens-api/tests/`, `services/lens-worker/tests/`; fill-rate thresholds `tests/parser-health.thresholds.json` (PR #9)
+- Architecture: `docs/03-architecture/README.md` (ADR index; SLL-PROP-DATA-001 family)
+- Roadmap: `docs/01-product-requirements/ROADMAP.md`
+- Tests: `tests/` (vitest), `services/lens-api/tests/`, `services/lens-worker/tests/`; fill-rate thresholds `tests/parser-health.thresholds.json`
 - Change history: `CHANGELOG.md`
 - Operating rules: `AGENTS.md`
 
