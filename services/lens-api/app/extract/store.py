@@ -81,8 +81,10 @@ class ExtractStore:
 
     # ---------------------------------------------------------------- write one observation
 
-    async def insert_observation(self, run_id: int, rec: dict[str, Any], obs: Observation, pgcrypto: bool) -> tuple[int, int]:
-        """Insert observation + claims + price observations + contact points in one transaction. Returns (observation_id, claims)."""
+    async def insert_observation(self, run_id: int, rec: dict[str, Any], obs: Observation, pgcrypto: bool,
+                                 resolutions: list[Any] | None = None, geo: Any = None, admin_version: str | None = None) -> tuple[int, int]:
+        """Insert observation + claims + price observations + contact points (+ resolved locations, 001D) in one transaction.
+        Returns (observation_id, claims)."""
         async with self.db.pool.acquire() as con:
             async with con.transaction():
                 oid = await con.fetchval(
@@ -139,6 +141,8 @@ class ExtractStore:
                         p.amount_lak, p.fx_rate, date.fromisoformat(p.fx_rate_date[:10]) if p.fx_rate_date else None, p.fx_source,
                         p.price_per_sqm_lak, rec["captured_at"], rec.get("created_at"), p.confidence,
                     )
+                if resolutions and geo is not None:
+                    await geo.insert_resolutions(con, oid, run_id, claim_ids, resolutions, admin_version)
         return oid, len(claim_ids)
 
     # ---------------------------------------------------------------- reads
@@ -155,7 +159,8 @@ class ExtractStore:
             for o in obs:
                 claims = await con.fetch("SELECT * FROM extract.claims WHERE observation_id=$1 ORDER BY claim_id", o["observation_id"])
                 prices = await con.fetch("SELECT * FROM extract.price_observations WHERE observation_id=$1 ORDER BY price_observation_id", o["observation_id"])
-                out.append({**_row(o), "claims": [_row(c) for c in claims], "price_observations": [_row(p) for p in prices]})
+                locs = await con.fetch("SELECT * FROM geo.resolved_locations WHERE observation_id=$1 ORDER BY is_primary DESC, confidence DESC", o["observation_id"])
+                out.append({**_row(o), "claims": [_row(c) for c in claims], "price_observations": [_row(p) for p in prices], "locations": [_row(loc) for loc in locs]})
         return out[0] if not all_runs else {"record_key": key, "observations": out}
 
     async def list_observations(self, signal_class: str | None, asset_type: str | None, since: datetime | None, min_conf: float, limit: int) -> list[dict[str, Any]]:
@@ -203,6 +208,8 @@ def _row(r: Any) -> dict[str, Any]:
     for k, v in d.items():
         if isinstance(v, Decimal):
             d[k] = format(v.normalize(), 'f') if v == v.to_integral() else format(v, 'f')
+        elif isinstance(v, float):
+            d[k] = round(v, 4)  # REAL columns come back as float32 noise (0.800000011920929)
         elif isinstance(v, str) and k in ("normalised", "signals", "group_hits"):
             try:
                 d[k] = json.loads(v)

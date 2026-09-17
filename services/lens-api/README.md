@@ -126,9 +126,22 @@ Run model: a background loop (`LENS_EXTRACT_INTERVAL_MIN`, default 15, 0 = off) 
 
 Contact points (D5/C4): `LENS_CONTACT_SALT` (default derived from the API token) salts the hash; `LENS_CONTACT_KEY` encrypts the raw value with pgcrypto — unset ⇒ masked + hash only. Raw values are never in claims JSON and never returned by any endpoint or MCP tool. Tests: `tests/test_extract_rules.py`; the golden-fixture gate reads `tests/fixtures/extract/golden-v1.jsonl` when it exists.
 
+## Geography — `app/geo/` (Phase 6, 001D)
+
+Gazetteer = the current `geo.admin_versions` row (immutable copies of the BST Lao Data Map export, D4) loaded in memory; `GEO_RULE_V1` resolves an observation's `LOCATION_TEXT` / `MAP_URL` / `COORDINATE` claims to admin codes + a point with an explicit `precision` and `confidence`, inside the extraction run. Without PostGIS (G1) the point path keeps the pin and takes admin codes only from agreement with the text path — always named in `signals`.
+
+| Endpoint | Semantics |
+|---|---|
+| `POST /admin/geo/import?source_ref=&make_current=` | JSON body `{admin_version, provinces[], districts[], villages[], aliases[]?}`; versions are immutable (409 on re-import) |
+| `POST /admin/geo/alias?level=&code=&alias=` | add a spelling collected from review (G3) |
+| `GET /geo/stats` | current version, gazetteer size, primary precision distribution, `precision_assigned_share` (001D §9.5 — must be 1.0), unresolved share |
+| `GET /geo/resolve?text=` | dry run, no write |
+
+Golden sets (C5): `python scripts/golden.py export --out DIR --limit 120` writes masked CSVs to label; `python scripts/golden.py build --records … --locations …` writes the fixtures the gates read (`tests/fixtures/extract/golden-v1.jsonl`, `tests/fixtures/geo/golden-v1.jsonl`).
+
 ## Schema files and lint
 
-`app/schema.sql` = L0/L1 (core); `app/schema_<layer>.sql` = L2/L3, additive only. `python scripts/schema_lint.py app` (also `tests/test_schema_lint.py`) rejects L2 statements that touch L0/L1 tables, bare fact-like column names (`price`, `owner`, `property`, `area`, `parcel`, `title`, BizProp+ ids), observation/claim tables without a NOT NULL 0..1 `confidence`, DROP/DELETE in the core file, and claims JSON that could carry a raw contact value. `LENS_CONTACT_KEY` (optional) is the pgcrypto key for `extract.contact_points.raw_value_enc`; unset ⇒ raw contact values are not stored (masked + hash only).
+`app/schema.sql` = L0/L1 (core); `app/schema_<layer>.sql` = L2/L3 (`schema_extract.sql`, `schema_geo.sql`), additive only. `python scripts/schema_lint.py app` (also `tests/test_schema_lint.py`) rejects L2 statements that touch L0/L1 tables, bare fact-like column names (`price`, `owner`, `property`, `area`, `parcel`, `title`, BizProp+ ids), observation/claim tables without a NOT NULL 0..1 `confidence`, DROP/DELETE in the core file, and claims JSON that could carry a raw contact value. `LENS_CONTACT_KEY` (optional) is the pgcrypto key for `extract.contact_points.raw_value_enc`; unset ⇒ raw contact values are not stored (masked + hash only).
 
 ## Retention (data minimisation, ordered)
 

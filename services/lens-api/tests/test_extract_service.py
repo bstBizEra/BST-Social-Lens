@@ -27,7 +27,7 @@ class FakeStore:
         self.fx_calls.append((currency, date_iso))
         return (Decimal("21500"), "2026-09-08", "MANUAL") if currency == "USD" else None
 
-    async def insert_observation(self, run_id, rec, obs, pgcrypto):
+    async def insert_observation(self, run_id, rec, obs, pgcrypto, resolutions=None, geo=None, admin_version=None):
         self.written.append((run_id, rec["key"], obs))
         return len(self.written), len(obs.claims)
 

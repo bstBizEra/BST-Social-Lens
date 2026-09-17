@@ -37,7 +37,7 @@ def env():
         main.db._dsn = DSN
         await main.db.connect()
         async with main.db.pool.acquire() as con:
-            await con.execute("DELETE FROM extract.contact_sightings; DELETE FROM extract.price_observations; DELETE FROM extract.claims; "
+            await con.execute("DELETE FROM geo.resolved_locations; DELETE FROM extract.contact_sightings; DELETE FROM extract.price_observations; DELETE FROM extract.claims; "
                               "DELETE FROM extract.observations; DELETE FROM extract.runs; DELETE FROM extract.contact_points; DELETE FROM extract.fx_rates;")
             await con.execute("DELETE FROM records WHERE key LIKE 'facebook:x%'")
             for key, text in POSTS:
@@ -122,3 +122,49 @@ def test_http_and_mcp_read_paths(env):
         assert mcp.status_code == 200 and "observations" in mcp.text
         mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 2, "method": "tools/call", "params": {"name": "get_observation", "arguments": {"key": "facebook:x1"}}})
         assert "raw_value" not in mcp.text and "PROPERTY_SALE" in mcp.text
+
+
+def test_geo_import_resolve_and_stats(env):
+    """001D live: import the sample gazetteer, force a run, locations land with the observation; endpoints + MCP read them."""
+    import json
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    main, run = env
+    fixture = json.loads((Path(__file__).parent / "fixtures" / "geo" / "admin-sample.json").read_text(encoding="utf-8"))
+    h = {"Authorization": "Bearer test-token"}
+    async def clean():  # own connection: the previous TestClient's lifespan closed the shared pool
+        from app.db import Database
+
+        d = Database(DSN)
+        await d.connect()
+        async with d.pool.acquire() as con:
+            await con.execute("DELETE FROM geo.resolved_locations; DELETE FROM geo.name_aliases; DELETE FROM geo.villages; DELETE FROM geo.districts; DELETE FROM geo.provinces; DELETE FROM geo.admin_versions;")
+        await d.close()
+
+    asyncio.run(clean())
+    main.geo_store._gaz = None
+    with TestClient(main.app) as client:
+        r = client.post("/admin/geo/import?source_ref=fixture", headers=h, json=fixture)
+        assert r.status_code == 200 and r.json()["villages"] == 8 and r.json()["is_current"] is True
+        assert client.post("/admin/geo/import", headers=h, json=fixture).status_code == 409  # immutable versions
+        r = client.get("/geo/resolve", headers=h, params={"text": "ຂາຍດິນ ບ້ານດົງໂດກ https://maps.google.com/?q=18.052,102.661"})
+        assert r.status_code == 200 and r.json()["resolutions"][0]["village_code"] == "V-XTN-DDK"
+        r = client.post("/admin/extract?force=1", headers=h)
+        assert r.status_code == 200 and r.json()["observations_out"] == 3
+        o = client.get("/observations/facebook:x1", headers=h).json()
+        assert o["locations"] and o["locations"][0]["is_primary"] and o["locations"][0]["precision"] == "VILLAGE"
+        assert o["locations"][0]["village_code"] == "V-XTN-NSP" and o["locations"][0]["admin_version"] == "sample-2026.09"
+        assert isinstance(o["signal_confidence"], float) and len(str(o["signal_confidence"]).split(".")[1]) <= 4  # rounded REAL
+        s = client.get("/geo/stats", headers=h).json()
+        assert s["admin_version"]["admin_version"] == "sample-2026.09" and s["gazetteer"]["villages"] == 8
+        assert s["precision_assigned_share"] == 1.0 and s["without_confidence"] == 0 and s["by_precision"]["VILLAGE"] == 1
+        r = client.post("/admin/geo/alias?level=village&code=V-XTN-DDK&alias=ດົງໂດກໃຫຍ່", headers=h)
+        assert r.status_code == 200
+        r = client.get("/geo/resolve", headers=h, params={"text": "ຂາຍດິນ ບ້ານດົງໂດກໃຫຍ່"})
+        assert r.json()["resolutions"][0]["village_code"] == "V-XTN-DDK"
+        mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "resolve_text", "arguments": {"text": "ຂາຍດິນ ເມືອງປາກເຊ"}}})
+        assert mcp.status_code == 200 and "D-CPS-PKS" in mcp.text
+        mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "geo_stats", "arguments": {}}})
+        assert mcp.status_code == 200 and "precision_assigned_share" in mcp.text
