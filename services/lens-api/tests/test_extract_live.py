@@ -264,4 +264,9 @@ def test_housekeeping_status_without_resolution(env):
         assert hk["reconciliation"]["R-SIGHT"]["ratio"] == 0.0 and hk["health"]["capture"] == "failing"
         assert any(f["finding_type"] == "RECORD_WITHOUT_EVENT" and f["auto_action_allowed"] for f in hk["findings"])
         assert hk["reconciliation"]["R-EXTR"]["ratio"] == 1.0 and hk["health"]["extract"] == "healthy"
+        # RAW_MISSING is auto-allowed (MARK_RAW_NEEDED): a run marks the hashes and /raw/needed serves them
+        r = client.post("/admin/housekeeping/run", headers=h).json()
+        if any(f["finding_type"] == "RAW_MISSING" for f in hk["findings"]):
+            assert any(a["action"] == "MARK_RAW_NEEDED" and a["result"].get("marked", 0) >= 1 for a in r["actions"]), r
+            assert client.get("/raw/needed", headers=h).json()["count"] >= 1
         assert hk["watermarks"]["retention"]["records_pending"] == 0

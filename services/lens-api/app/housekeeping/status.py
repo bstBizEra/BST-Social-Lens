@@ -71,7 +71,7 @@ async def housekeeping_status(db: Any, *, rules_version: str, raw_retention_days
         if rec["with_hash"] - rec["resolved"] > 0:
             findings.append(_finding("RAW_MISSING", "WARN" if r_evid and r_evid > 0.5 else "ERROR", rec["with_hash"] - rec["resolved"],
                                      "every L1 row resolves to a raw capture (001B)", f"{rec['resolved']}/{rec['with_hash']} resolved",
-                                     "extension re-sends raw on next sync (sendRaw on, host permission granted)", False))
+                                     "MARK_RAW_NEEDED → GET /raw/needed; the extension re-sends bodies it still holds on its next sync (0.7.4+)", True))
         if raw["orphan"]:
             findings.append(_finding("RAW_ORPHAN", "INFO", raw["orphan"], "raw captures referenced by a record or event", f"{raw['orphan']} unreferenced", "keep; parser gap corpus", False))
         recon["R-SIGHT"] = {"expected": rec["n"], "observed": rec["n"] - rec["no_event"], "ratio": round((rec["n"] - rec["no_event"]) / rec["n"], 4) if rec["n"] else None}
