@@ -112,7 +112,11 @@ Verified live on bizera-wsl 2026-09-17: 401 without token; initialize / tools/li
 
 ## Extraction rules — `app/extract/` (Phase 6, 001C)
 
-`extract_observation(text, record_type, author_name, post_date, fx, contact_salt)` → `Observation` (signal class, asset type, claims, price observations). Pure Python, deterministic, no I/O; `fx(currency, date)` is injected so LAK normalisation is testable. Keyword groups live in `app/extract/keywords.py` and are mirrored in the extension (parity-tested). Not yet exposed as an endpoint or persisted — that follows the `extract.*` DDL (001F subset). Tests: `tests/test_extract_rules.py`; the golden-fixture gate reads `tests/fixtures/extract/golden-v1.jsonl` when it exists.
+`extract_observation(text, record_type, author_name, post_date, fx, contact_salt)` → `Observation` (signal class, asset type, claims, price observations). Pure Python, deterministic, no I/O; `fx(currency, date)` is injected so LAK normalisation is testable. Keyword groups live in `app/extract/keywords.py` and are mirrored in the extension (parity-tested). Persisted in the `extract` schema (`app/schema_extract.sql`, applied after `schema.sql`; kept additive by `scripts/schema_lint.py`, which CI runs). Endpoints/run loop follow. Tests: `tests/test_extract_rules.py`; the golden-fixture gate reads `tests/fixtures/extract/golden-v1.jsonl` when it exists.
+
+## Schema files and lint
+
+`app/schema.sql` = L0/L1 (core); `app/schema_<layer>.sql` = L2/L3, additive only. `python scripts/schema_lint.py app` (also `tests/test_schema_lint.py`) rejects L2 statements that touch L0/L1 tables, bare fact-like column names (`price`, `owner`, `property`, `area`, `parcel`, `title`, BizProp+ ids), observation/claim tables without a NOT NULL 0..1 `confidence`, DROP/DELETE in the core file, and claims JSON that could carry a raw contact value. `LENS_CONTACT_KEY` (optional) is the pgcrypto key for `extract.contact_points.raw_value_enc`; unset ⇒ raw contact values are not stored (masked + hash only).
 
 ## Retention (data minimisation, ordered)
 

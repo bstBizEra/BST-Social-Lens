@@ -59,6 +59,9 @@ jobs:
           cache-dependency-path: services/lens-api/requirements-dev.txt
       - run: pip install -r requirements-dev.txt
         working-directory: services/lens-api
+      - name: Schema-lint (L2 additive-only, 001A vocabulary, confidence NOT NULL)
+        run: python scripts/schema_lint.py app
+        working-directory: services/lens-api
       - run: pytest -q
         working-directory: services/lens-api
 
