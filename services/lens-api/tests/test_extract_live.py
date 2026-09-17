@@ -247,3 +247,20 @@ def test_review_csv_round_trip_and_quality_stats(env):
         assert s["dq_version"] and s["observations"] == 4 and sum(s["by_grade"].values()) == 4 and "mean_score" in s
         mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "quality_stats", "arguments": {}}})
         assert mcp.status_code == 200 and "by_grade" in mcp.text
+
+
+def test_housekeeping_status_without_resolution(env):
+    """HK-001 with the flag off: resolve/snapshot/publish report enabled=false, everything else still reconciles."""
+    from fastapi.testclient import TestClient
+
+    main, _ = env
+    h = {"Authorization": "Bearer test-token"}
+    with TestClient(main.app) as client:
+        hk = client.get("/housekeeping/status", headers=h).json()
+        if not main.RESOLUTION_ENABLED:  # suite may run with the flag on when sharing a DB with the resolution suite
+            assert hk["watermarks"]["resolve"] == {"enabled": False} and hk["health"]["resolve"] == "disabled"
+        # fixture rows bypass /ingest, so no capture events: the check must report it (health failing) rather than hide it
+        assert hk["reconciliation"]["R-SIGHT"]["ratio"] == 0.0 and hk["health"]["capture"] == "failing"
+        assert any(f["finding_type"] == "RECORD_WITHOUT_EVENT" and f["auto_action_allowed"] for f in hk["findings"])
+        assert hk["reconciliation"]["R-EXTR"]["ratio"] == 1.0 and hk["health"]["extract"] == "healthy"
+        assert hk["watermarks"]["retention"]["records_pending"] == 0

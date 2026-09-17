@@ -23,6 +23,7 @@ Endpoints
   GET  /geo/stats        gazetteer + precision distribution + 001D §9.5 evidence (bearer auth)
   GET  /geo/resolve?text= dry-run resolver over a text; no write (bearer auth)
   GET  /quality/stats    DQ grade distribution + validation exceptions over current observations (bearer auth) — 001G
+  GET  /housekeeping/status  watermarks · reconciliation · stage health · findings (read-only) — SLL-DATA-HK-001
   POST /admin/quality/recompute?since=  new stats+DQ snapshot rows per ACTIVE property (flag on) — 001G §7
   --- only with LENS_RESOLUTION_ENABLED=1 (001E/001F draft schema; off in production until 001E freezes) ---
   POST /admin/resolve    run clusters → blocking → MATCH_V1 → decisions now (bearer auth)
@@ -48,6 +49,7 @@ import hashlib
 from .db import Database
 from .extract.service import run_extraction
 from .extract.store import ExtractStore, quality_stats
+from .housekeeping import housekeeping_status
 from .geo.resolver import resolve as geo_resolve
 from .geo.store import GeoStore
 from .resolution.service import run_resolution
@@ -153,7 +155,7 @@ async def lifespan(app: FastAPI):
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.4", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.5", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -382,6 +384,19 @@ async def geo_resolve_dry(text: str = Query(min_length=1, max_length=4000)) -> d
 @app.get("/quality/stats", dependencies=[Depends(require_token)])
 async def quality_stats_endpoint() -> dict:
     return await quality_stats(db)
+
+
+def _hk_config() -> dict:
+    from .extract.fields import RULES_VERSION
+
+    return {"rules_version": RULES_VERSION, "raw_retention_days": RAW_BODY_RETENTION_DAYS, "record_retention_days": RETENTION_DAYS,
+            "resolution_enabled": RESOLUTION_ENABLED}
+
+
+@app.get("/housekeeping/status", dependencies=[Depends(require_token)])
+async def housekeeping_status_endpoint() -> dict:
+    """SLL-DATA-HK-001 §6–§8 (read-only): per-stage watermarks, reconciliation ratios, stage health, open findings."""
+    return await housekeeping_status(db, **_hk_config())
 
 
 def require_resolution() -> None:

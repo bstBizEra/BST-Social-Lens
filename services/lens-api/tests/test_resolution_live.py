@@ -224,3 +224,25 @@ def test_match_queue_csv_round_trip_and_recompute(env, tmp_path):
         assert q["entity_match_source"] == "resolution.current_decisions"
         r = client.post("/admin/quality/recompute?since=2999-01-01T00:00:00Z", headers=h)
         assert r.status_code == 200 and r.json()["properties"] == 0
+
+
+def test_housekeeping_status_with_resolution(env):
+    """HK-001 read-only status on a populated DB with the flag on: every stage reports, reconciliation ratios are sane."""
+    from fastapi.testclient import TestClient
+
+    main = env
+    h = {"Authorization": "Bearer test-token"}
+    with TestClient(main.app) as client:
+        r = client.get("/housekeeping/status", headers=h)
+        assert r.status_code == 200, r.text
+        hk = r.json()
+        assert hk["hk_version"] == "0.1.0" and set(hk["watermarks"]) >= {"capture", "raw", "ingest", "extract", "geo", "resolve", "snapshot", "publish", "retention"}
+        assert hk["watermarks"]["resolve"]["enabled"] is True and hk["watermarks"]["extract"]["records_pending"] == 0
+        assert hk["reconciliation"]["R-EXTR"]["ratio"] == 1.0 and hk["reconciliation"]["R-RES"]["ratio"] == 1.0
+        assert hk["health"]["extract"] == "healthy" and hk["health"]["resolve"] == "healthy"
+        # fixture rows were inserted straight into records (no payload hash, no capture events) → the expected findings
+        types = {f["finding_type"] for f in hk["findings"]}
+        assert "RECORD_WITHOUT_EVENT" in types and hk["reconciliation"]["R-EVID"]["ratio"] is None and all(f["status"] == "OPEN" for f in hk["findings"])
+        assert "lifecycle" in hk["watermarks"]["snapshot"] and sum(hk["watermarks"]["snapshot"]["lifecycle"].values()) >= 2
+        mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "housekeeping_status", "arguments": {}}})
+        assert mcp.status_code == 200 and "R-EVID" in mcp.text

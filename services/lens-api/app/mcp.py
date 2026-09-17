@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.4"}
+SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.5"}
 
 # JSON-RPC error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL = -32700, -32600, -32601, -32602, -32603
@@ -122,6 +122,11 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "housekeeping_status",
+        "description": "SLL-DATA-HK-001 (read-only): per-stage watermarks (capture, raw, ingest, extract, geo, resolve, snapshot, publish, retention), reconciliation ratios (R-EVID, R-SIGHT, R-EXTR, R-GEO, R-RES, R-PROP, R-SNAP, R-RET), stage health and open findings with recommended actions.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
         "name": "search_market_properties",
         "description": "Phase 7 (001E, only when resolution is enabled): active market properties with latest statistics snapshot. Prices are OBSERVED_ASKING statistics, never a single value.",
         "inputSchema": {"type": "object", "properties": {"district": {"type": "string"}, "village": {"type": "string"}, "asset_type": {"type": "string"}, "state": {"type": "string", "enum": ["CLEAN", "PENDING_REVIEW", "DISPUTED"]}, "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT, "default": 25}}},
@@ -186,6 +191,7 @@ class McpDispatcher:
             "geo_stats": self.geo_stats,
             "resolve_text": self.resolve_text,
             "quality_stats": self.quality_stats,
+            "housekeeping_status": self.housekeeping_status,
             "search_market_properties": self.search_market_properties,
             "get_market_property": self.get_market_property,
             "resolution_stats": self.resolution_stats,
@@ -254,6 +260,12 @@ class McpDispatcher:
         from .extract.store import quality_stats
 
         return await quality_stats(self.db)
+
+    async def housekeeping_status(self, a: dict[str, Any]) -> Any:
+        from . import main as m
+        from .housekeeping import housekeeping_status
+
+        return await housekeeping_status(self.db, **m._hk_config())
 
     def _res(self) -> Any:
         r = getattr(self.db, "resolution", None)
