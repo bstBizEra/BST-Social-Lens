@@ -18,6 +18,10 @@ Endpoints
   GET  /observations/{key}  current observation + claims (+ history with ?all=1) (bearer auth)
   GET  /extract/stats    class/asset distribution, claims-without-confidence (must be 0), run history (bearer auth)
   POST /admin/fx         load an FX reference rate (bearer auth) — C2
+  POST /admin/geo/import import a Lao Data Map admin version (JSON body; bearer auth) — 001D D4
+  POST /admin/geo/alias  add a name alias collected from review (bearer auth) — 001D G3
+  GET  /geo/stats        gazetteer + precision distribution + 001D §9.5 evidence (bearer auth)
+  GET  /geo/resolve?text= dry-run resolver over a text; no write (bearer auth)
 """
 from __future__ import annotations
 
@@ -39,6 +43,8 @@ import hashlib
 from .db import Database
 from .extract.service import run_extraction
 from .extract.store import ExtractStore
+from .geo.resolver import resolve as geo_resolve
+from .geo.store import GeoStore
 from .mcp import McpDispatcher
 from .models import HealthResult, IngestBody, IngestResult, RawBody, RawResult, SeenBody, record_to_row
 
@@ -68,7 +74,10 @@ log = logging.getLogger("lens-api")
 
 db = Database(DSN)
 extract_store = ExtractStore(db, CONTACT_KEY)
-db.extract = extract_store  # exposes the L2 store to the MCP dispatcher (read-only tools)
+geo_store = GeoStore(db)
+extract_store.geo = geo_store  # extraction runs resolve locations in the same transaction (001D)
+db.extract = extract_store  # exposes the L2 stores to the MCP dispatcher (read-only tools)
+db.geo = geo_store
 _extract_lock = asyncio.Lock()
 
 
@@ -113,7 +122,7 @@ async def lifespan(app: FastAPI):
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.0", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.1", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -297,6 +306,46 @@ async def admin_fx(currency: str = Query(pattern="^(USD|THB)$"), rate_date: date
     """Load one FX reference rate (C2). Idempotent per (currency, date)."""
     await extract_store.upsert_fx(currency, rate_date, lak_per_unit, source)
     return {"currency": currency, "rate_date": rate_date.isoformat(), "lak_per_unit": str(lak_per_unit), "source": source}
+
+
+@app.post("/admin/geo/import", dependencies=[Depends(require_token)])
+async def admin_geo_import(request: Request, source_ref: str = Query(default="manual"), make_current: bool = Query(default=True)) -> dict:
+    """Import one admin version: JSON body {admin_version, provinces[], districts[], villages[], aliases[]?} (Lao Data Map export, D4).
+    Versions are immutable: re-importing an existing id is rejected."""
+    payload = await request.json()
+    for k in ("admin_version", "provinces", "districts", "villages"):
+        if k not in payload:
+            raise HTTPException(status_code=422, detail=f"missing {k}")
+    try:
+        return await geo_store.import_admin(payload, source_ref, make_current)
+    except ValueError as e:
+        raise HTTPException(status_code=409, detail=str(e))
+
+
+@app.post("/admin/geo/alias", dependencies=[Depends(require_token)])
+async def admin_geo_alias(level: str = Query(pattern="^(province|district|village)$"), code: str = Query(min_length=1), alias: str = Query(min_length=1)) -> dict:
+    await geo_store.add_alias(level, code, alias, "REVIEW")
+    return {"level": level, "code": code, "alias": alias}
+
+
+@app.get("/geo/stats", dependencies=[Depends(require_token)])
+async def geo_stats() -> dict:
+    return await geo_store.stats()
+
+
+@app.get("/geo/resolve", dependencies=[Depends(require_token)])
+async def geo_resolve_dry(text: str = Query(min_length=1, max_length=4000)) -> dict:
+    """Dry run: extract location claims from `text` and resolve them against the current gazetteer. Writes nothing."""
+    from .extract.rules import extract_observation
+
+    obs = extract_observation(text)
+    gaz = await geo_store.gazetteer()
+    res = geo_resolve(obs.claims, gaz)
+    return {
+        "admin_version": gaz.admin_version,
+        "claims": [c.to_dict() for c in obs.claims if c.field in ("LOCATION_TEXT", "MAP_URL", "COORDINATE")],
+        "resolutions": [r.__dict__ for r in res],
+    }
 
 
 @app.post("/mcp", dependencies=[Depends(require_token)])

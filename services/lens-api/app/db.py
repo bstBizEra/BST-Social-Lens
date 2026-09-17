@@ -14,7 +14,7 @@ import asyncpg
 
 SCHEMA_PATH = pathlib.Path(__file__).with_name("schema.sql")
 # L2 schemas are separate files, applied after the core schema; schema_lint keeps them additive.
-L2_SCHEMA_PATHS = [pathlib.Path(__file__).with_name("schema_extract.sql")]
+L2_SCHEMA_PATHS = [pathlib.Path(__file__).with_name("schema_extract.sql"), pathlib.Path(__file__).with_name("schema_geo.sql")]
 
 _UPSERT = """
 INSERT INTO records (
@@ -91,6 +91,7 @@ class Database:
         self._pool: asyncpg.Pool | None = None
         self.pgcrypto: bool = False
         self.extract: Any = None  # ExtractStore, attached by main (L2 reads for /mcp)
+        self.geo: Any = None  # GeoStore, attached by main
 
     async def connect(self) -> None:
         self._pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=10)

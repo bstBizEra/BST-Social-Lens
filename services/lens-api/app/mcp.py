@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.0"}
+SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.1"}
 
 # JSON-RPC error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL = -32700, -32600, -32601, -32602, -32603
@@ -106,6 +106,16 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Extraction KPIs: observations by signal class / asset type, UNCERTAIN share, claims without confidence (must be 0), price observations lacking FX, recent runs.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "geo_stats",
+        "description": "Phase 6 (001D): current admin version, gazetteer size, precision distribution of primary resolved locations, unresolved share, precision_assigned_share (must be 1.0).",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
+    {
+        "name": "resolve_text",
+        "description": "Dry-run the location resolver over a text (no write): location claims found and their resolutions with precision, admin codes, confidence and signals.",
+        "inputSchema": {"type": "object", "properties": {"text": {"type": "string"}}, "required": ["text"]},
+    },
 ]
 
 ToolFn = Callable[[dict[str, Any]], Awaitable[Any]]
@@ -153,6 +163,8 @@ class McpDispatcher:
             "list_observations": self.list_observations,
             "get_observation": self.get_observation,
             "extraction_stats": self.extraction_stats,
+            "geo_stats": self.geo_stats,
+            "resolve_text": self.resolve_text,
         }
 
     # ---------- tools ----------
@@ -199,6 +211,20 @@ class McpDispatcher:
 
     async def extraction_stats(self, a: dict[str, Any]) -> Any:
         return await self.db.extract.stats()
+
+    async def geo_stats(self, a: dict[str, Any]) -> Any:
+        return await self.db.geo.stats()
+
+    async def resolve_text(self, a: dict[str, Any]) -> Any:
+        text = a.get("text")
+        if not isinstance(text, str) or not text.strip():
+            raise ValueError("text must be a non-empty string")
+        from .extract.rules import extract_observation
+        from .geo.resolver import resolve
+
+        obs = extract_observation(text[:4000])
+        gaz = await self.db.geo.gazetteer()
+        return {"admin_version": gaz.admin_version, "resolutions": [r.__dict__ for r in resolve(obs.claims, gaz)]}
 
     # ---------- JSON-RPC ----------
 
