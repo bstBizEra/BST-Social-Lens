@@ -87,6 +87,11 @@ def test_exclude_terms_and_comment_are_recorded_as_signals():
         ("ຕາແມັດລະ 5 ລ້ານ", Decimal("5000000"), "LAK", "PER_SQM"),
         ("ເດືອນລະ 2,500,000 ກີບ", Decimal("2500000"), "LAK", "PER_MONTH"),
         ("1,500 USD/month", Decimal("1500"), "USD", "PER_MONTH"),
+        # RULE_V1 1.0.1 — patterns observed in the first real capture (2026-09-17, digits masked)
+        ("ລາຄາ 2.500.000ບາດ", Decimal("2500000"), "THB", "TOTAL"),       # dot thousands, no space before currency
+        ("ລາຄາ 2.500ບາດ", Decimal("2500"), "THB", "TOTAL"),              # dot thousands (range rule flags it for review)
+        ("ລາຄາ\u200b2,700,000ບາດ ຍັງລຸດໄດ້", Decimal("2700000"), "THB", "TOTAL"),  # zero-width space after the price term
+        ("1.500 ລ້ານກີບ", Decimal("1500000000"), "LAK", "TOTAL"),        # dot thousands + magnitude word
     ],
 )
 def test_price_parsing(text, amount, currency, basis):
@@ -110,6 +115,21 @@ def test_dimensions_and_phone_numbers_are_not_prices():
     assert by_field(obs, "PRICE") == []
     obs = extract_observation("ຂາຍດິນ 600 ຕາແມັດ")
     assert by_field(obs, "PRICE") == []
+
+
+def test_withheld_prices_and_obfuscated_tails():
+    """1.0.1: "1,xxx,000฿" used to yield a 0 THB price from the "000" tail; now it is a withheld-price claim, never a
+    price observation, and a bare single digit is not a price at all."""
+    obs = extract_observation("ຂາຍດິນ ລາຄາ 1,xxx,000฿ ຕໍ່ລອງໄດ້")
+    (c,) = by_field(obs, "PRICE")
+    assert c.normalised["price_withheld"] is True and c.normalised["currency_original"] == "THB" and c.value_text == "1,xxx,000฿"
+    assert obs.price_observations == []
+    obs = extract_observation("ຂາຍດິນ ລາຄາ +,+++$ ໂທ")
+    (c,) = by_field(obs, "PRICE")
+    assert c.normalised["price_withheld"] is True and c.normalised["currency_original"] == "USD"
+    assert by_field(extract_observation("ຂາຍດິນ ລາຄາ 5"), "PRICE") == []
+    obs = extract_observation("ຂາຍດິນ ລາຄາ 650,000฿ ດິນ 20x30")  # dimensions still parse with the new lookbehind
+    assert [c.value_text for c in by_field(obs, "PRICE")] == ["650,000฿"] and by_field(obs, "AREA")[0].value_text == "20x30"
 
 
 def test_bare_number_near_price_term_is_low_confidence():
@@ -151,6 +171,7 @@ def test_conflicting_prices_are_all_kept_with_lower_confidence():
         ("ເນື້ອທີ່ 600 ຕາແມັດ", Decimal("600.00")),
         ("600m2", Decimal("600.00")),
         ("1 ເຮັກຕາ", Decimal("10000.00")),
+        ("1.234 ຕາແມັດ", Decimal("1234.00")),  # 1.0.1: dot thousands (was 1.23 m² → area_range exception)
         ("2 ໄຮ່", Decimal("3200.00")),
         ("3 ງານ", Decimal("1200.00")),
         ("50 ຕາວາ", Decimal("200.00")),

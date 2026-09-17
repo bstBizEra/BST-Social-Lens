@@ -1,7 +1,7 @@
 # SLL-PROP-DATA-001C — Property Extraction Contract v0.1
 
 - Parent: `SLL-PROP-DATA-001` (frozen) · Boundary: `001A` (frozen) · Capture: `001B` (frozen) · Roadmap: ADR-0005 Phase 6 → v0.8.0
-- Status: **Draft for freeze** (2026-09-17). Freezes with the first extraction PR that passes the golden-fixture gate (§10). Implementation state: §4.3 + §5 + §6 + §7 tier 1 implemented in `services/lens-api/app/extract/` (RULE_V1 1.0.0, synthetic tests); §3 physical tables in `app/schema_extract.sql` (001F subset, schema-lint enforced); §8 run loop + endpoints + `/mcp` tools implemented (lens-api 0.6.0). Remaining for freeze: §10.1 golden fixtures (operator-labelled), §10.5 live evidence.
+- Status: **Draft for freeze** (2026-09-17). Freezes with the first extraction PR that passes the golden-fixture gate (§10). Implementation state: §4.3 + §5 + §6 + §7 tier 1 implemented in `services/lens-api/app/extract/` (RULE_V1 **1.0.1** — first real-data fixes 2026-09-17: dot-thousands numbers, zero-width spaces before currency words, obfuscated/withheld prices as `price_withheld` claims, no single-digit bare prices; synthetic tests + masked real patterns); §3 physical tables in `app/schema_extract.sql` (001F subset, schema-lint enforced); §8 run loop + endpoints + `/mcp` tools implemented (lens-api 0.6.0). Remaining for freeze: §10.1 golden fixtures (operator-labelled), §10.5 live evidence.
 - Contract family: **C02 Property Extraction** — *AI/extraction output is a claim, not automatically a fact*
 - Companion: `001D` Geo-Normalisation (location claims are defined here, resolved there)
 

@@ -50,7 +50,18 @@ AREA_UNITS: dict[str, Decimal] = {
     "ຕາວາ": Decimal(4), "ຕລວ": Decimal(4), "wa": Decimal(4), "ตารางวา": Decimal(4), "ตรว": Decimal(4),
 }
 
-NUMBER_RE = r"(?P<num>\d{1,3}(?:[,\s]\d{3})+(?:\.\d+)?|\d+(?:\.\d+)?)"
+# Zero-width / joiner characters common in Lao social text — treated as spaces in the regex shadow (length-preserving).
+_ZW_MAP = str.maketrans({c: " " for c in ("\u200b", "\u200c", "\u200d", "\u2060", "\ufeff")})
+
+# Number token (RULE_V1 1.0.1):
+#  - digit groups separated by comma, space, OR DOT (Lao/Thai/European thousands: 2.500.000) — never starts mid-number
+#    (a preceding digit, separator or obfuscation glyph like x/×/+ means we are inside a longer token: "1,xxx,000฿" must
+#    not yield "000฿");
+#  - a plain integer/decimal otherwise.
+NUMBER_RE = r"(?<![\d,.])(?P<num>\d{1,3}(?:[,\s.]\d{3})+(?![\d])|\d+(?:\.\d+)?)"
+_DOT_THOUSANDS = re.compile(r"^\d{1,3}(?:\.\d{3})+$")
+# Deliberately withheld amounts: "1,xxx,000 ฿", "+,+++$", "x.xxx$" — digits replaced by x/×/+ (at least two glyphs).
+WITHHELD_RE = r"(?P<withheld>(?:[\d]{0,3}[,.]?)?[xX×+*]{1,3}(?:[,.][xX×+*\d]{3})+|[xX×+*]{2,}[,.]?[xX×+*\d]*)"
 
 
 def nfc(s: str | None) -> str:
@@ -58,12 +69,14 @@ def nfc(s: str | None) -> str:
 
 
 def ascii_digits(s: str) -> str:
-    """Map Lao/Thai digits to ASCII. Length-preserving, so offsets stay valid."""
-    return s.translate(_DIGIT_MAP)
+    """Map Lao/Thai digits to ASCII and zero-width characters to spaces. Length-preserving, so offsets stay valid."""
+    return s.translate(_DIGIT_MAP).translate(_ZW_MAP)
 
 
 def parse_number(token: str) -> Decimal | None:
-    t = ascii_digits(token).replace(",", "").replace(" ", "").replace(" ", "")
+    t = ascii_digits(token).replace(",", "").replace(" ", "").replace("\u00a0", "")
+    if _DOT_THOUSANDS.match(t):  # 2.500.000 / 1.234 → dots are thousands separators, not a decimal point (1.0.1)
+        t = t.replace(".", "")
     try:
         return Decimal(t)
     except InvalidOperation:
