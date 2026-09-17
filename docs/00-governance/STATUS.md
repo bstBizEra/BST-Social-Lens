@@ -10,17 +10,17 @@ is a working aid, not evidence.
 
 | Field | Value |
 |---|---|
-| Snapshot observed at | 2026-09-17T17:22:11+07:00 (2026-09-17T10:22:11Z) |
-| Snapshot base SHA | `a42479b` — `main` as observed when this snapshot was prepared ("Merge pull request #23 from bstBizEra/feat/phase6-extract-api") |
-| Snapshot PR | #24 |
-| Previous snapshot | base `3189f51`, PR #19 |
+| Snapshot observed at | 2026-09-17T19:33:11+07:00 (2026-09-17T12:33:11Z) |
+| Snapshot base SHA | `2768bfe` — `main` as observed when this snapshot was prepared ("Merge pull request #27 from bstBizEra/feat/phase7-cluster-blocking") |
+| Snapshot PR | #28 |
+| Previous snapshot | base `a42479b`, PR #24 |
 | Status scope | Repository state as observed at the snapshot base; PRs listed are those open at that moment |
-| Latest release | v0.5.0 — GitHub Release exists (extension 0.4.0 · parsers 0.3.0 · lens-api 0.3.0 · Console). Since the release `main` carries: parser-health CI (#9), ADR-0004 (#6), STATUS snapshot (#10), runbook §2a + ops (#11–#13), MCP adapter (#15, lens-api 0.4.0), retention (#16), SLL-PROP-DATA-001/001A + ADR-0005 + ROADMAP (#17), Phase 5 capture & provenance (#18, lens-api 0.5.0, 001B), STATUS snapshot (#19), 001C/001D contracts (#20), RULE_V1 rules (#21), `extract.*` DDL + schema-lint (#22), extraction run loop + L2 API + MCP tools (#23, lens-api 0.6.0) |
+| Latest release | v0.5.0 — GitHub Release exists (extension 0.4.0 · parsers 0.3.0 · lens-api 0.3.0 · Console). Since the release `main` carries: parser-health CI (#9), ADR-0004 (#6), STATUS snapshot (#10), runbook §2a + ops (#11–#13), MCP adapter (#15, lens-api 0.4.0), retention (#16), SLL-PROP-DATA-001/001A + ADR-0005 + ROADMAP (#17), Phase 5 capture & provenance (#18, lens-api 0.5.0, 001B), STATUS snapshot (#19), 001C/001D contracts (#20), RULE_V1 rules (#21), `extract.*` DDL + schema-lint (#22), extraction run loop + L2 API + MCP tools (#23, lens-api 0.6.0), 001D geo text path + golden tooling + snapshot (#24, lens-api 0.6.1), 001E contract (#25), 001E pure building blocks — permalink rules, text similarity, `MATCH_V1` (#26), clusters + blocking (#27) |
 | Next release | v0.7.0 — extension 0.7.0 = Phase 5 provenance (on `main`) + Layer B assisted navigation (PR #7, gated on A/B). Version fields on `main` still read 0.4.0; the bump lands with #7 (see *Release reconciliation*). v0.8.0 (Phase 6) follows once 001C/001D freeze on the golden gates |
-| Architecture baseline | `SLL-PROP-DATA-001` parent (frozen), `001A` Domain & Data Boundary v0.1 (frozen, D1–D7 adopted), `001B` Capture & Provenance Contract v0.1 (frozen at #18); `001C` Property Extraction and `001D` Geo-Normalisation v0.1 (**draft for freeze**, implemented; freeze on the golden-fixture gates); ADR-0005 **Accepted** — Phases 5–9 in `docs/01-product-requirements/ROADMAP.md` |
+| Architecture baseline | `SLL-PROP-DATA-001` parent (frozen), `001A` Domain & Data Boundary v0.1 (frozen, D1–D7 adopted), `001B` Capture & Provenance Contract v0.1 (frozen at #18); `001C` Property Extraction and `001D` Geo-Normalisation v0.1 (**draft for freeze**, implemented; freeze on the golden-fixture gates); `001E` Entity Resolution v0.1 (**draft for freeze**, all algorithmic parts implemented as pure modules, unwired); `001F` Canonical Database Design v0.1 (**draft**, `schema_market.sql` written/validated/linted, not applied); ADR-0005 **Accepted** — Phases 5–9 in `docs/01-product-requirements/ROADMAP.md` |
 | Branch protection | Ruleset `main-protection` (active): PR required, conversation resolution, required checks `extension · check / test / build` + `lens-api · pytest` (strict), no force-push, no deletion, 0 approvals (no independent reviewer yet) |
-| CI | `.github/workflows/parser-health.yml` on `main`. Required checks report on every PR; the `lens-api · pytest` job now also runs `scripts/schema_lint.py` (L2 additive-only, 001A vocabulary, confidence NOT NULL); `lens-worker · pytest` is skipped (not green) while the worker is absent on the base |
-| Deployment | lens-api runs container-free on bizera-wsl as `bst-lens-api.service` (systemd, runbook §2a) against local PostgreSQL; restarted on `a42479b` — `extract.*` schema applied additively at startup; extraction loop active (15 min). PostGIS/pg_trgm not yet installed (001D G1) |
+| CI | `.github/workflows/parser-health.yml` on `main`. Required checks report on every PR; the `lens-api · pytest` job also runs `scripts/schema_lint.py` (R1–R8: L2 additive-only, 001A vocabulary, confidence NOT NULL, no raw contact in claims, no price on market properties, snapshots versioned, decisions append-only); `lens-worker · pytest` is skipped (not green) while the worker is absent on the base |
+| Deployment | lens-api runs container-free on bizera-wsl as `bst-lens-api.service` (systemd, runbook §2a) against local PostgreSQL; running `50978ca` (lens-api 0.6.1) — `extract.*` + `geo.*` applied additively at startup; extraction loop active (15 min); gazetteer empty until a Lao Data Map import. PostGIS/pg_trgm not yet installed (001D G1). #25–#27 are unwired code/docs and need no restart |
 
 ## SDLC gate status (AGENTS.md §5)
 
@@ -28,11 +28,11 @@ is a working aid, not evidence.
 |---|---|---|
 | 1–2 PRD / decomposition | active | `docs/01-product-requirements/ROADMAP.md` (ADR-0005 phases → releases); SLL-PROP-DATA-001 parent + 001A/001B on `main` |
 | 3 Architecture | done | ADR-0001 … ADR-0005 (`docs/03-architecture/README.md`); 001A frozen (L0–L3 layers, invariants I1–I10) |
-| 4 Detailed design | done for Phases 5–6 | `src/lib/types.ts` schema v1 (+ `payload_hash`/`content_hash`); `services/lens-api/app/schema.sql` (L0/L1), `schema_extract.sql` (L2 extraction, 001F subset) — physical tables carry the 001C CHECKs (vocabularies, 0..1 confidence, no `raw_value` in claims JSON) |
+| 4 Detailed design | done for Phases 5–6; drafted for 7–8 (001F) | `src/lib/types.ts` schema v1 (+ `payload_hash`/`content_hash`); `services/lens-api/app/schema.sql` (L0/L1), `schema_extract.sql` (L2 extraction, 001F subset) — physical tables carry the 001C CHECKs (vocabularies, 0..1 confidence, no `raw_value` in claims JSON) |
 | 5 Security / compliance | **parked by owner decision** | Lao EDPL 2017 mapping + ToS exposure register not authored (PR #14 closed). ADR-0004 §Context 2 records the legal posture as risk context |
-| 6 Implementation planning | active | ROADMAP.md phase table; Phase 6 in delivery (001C done, 001D text path in PR #24); next 001E entity resolution (Phase 7) |
-| 7 Development | active | `main`: extension source at Phase 5 + keyword groups (version field 0.4.0), lens-api 0.6.0 (`/raw`, `/provenance`, `/mcp`, retention, RULE_V1 extraction → `extract.*`, `/observations`, `/extract/stats`); 0.6.0 Layer B in PR #7; lens-worker spike in PR #8 |
-| 8 Engineering verification | active | `main` at base: 40 vitest passed + 1 skipped (incl. parser-health replay, provenance, keyword-group parity) + 85 lens-api pytest passed + 5 skipped (golden gates awaiting labelled data; live DB tests behind `LENS_TEST_DSN`), CI-enforced. Live DB tests (schema, extraction end-to-end) passed on a disposable PostgreSQL 16 during preparation of PRs #22–#23 |
+| 6 Implementation planning | active | ROADMAP.md phase table; Phase 6 code complete, waiting on operator data for the gates; Phase 7 algorithmic core complete (unwired), persistence drafted in 001F |
+| 7 Development | active | `main`: extension source at Phase 5 + keyword groups (version field 0.4.0), lens-api 0.6.1 (`/raw`, `/provenance`, `/mcp` 10 tools, retention, RULE_V1 → `extract.*`, GEO_RULE_V1 → `geo.*`, `/observations`, `/extract/stats`, `/geo/*`), `app/resolution/` pure modules; 0.6.0 Layer B in PR #7; lens-worker spike in PR #8 |
+| 8 Engineering verification | active | `main` at base: 40 vitest passed + 1 skipped + 135 lens-api pytest passed + 7 skipped (golden gates awaiting labelled data; live DB tests behind `LENS_TEST_DSN`), CI-enforced. Live DB tests (schema, extraction, geo end-to-end) and the 001F draft DDL probes passed on a disposable PostgreSQL 16 during preparation of PRs #22–#24 and #28 |
 | 9–14 | not started | — |
 
 ## Phase 5 exit evidence (001B §8) — observed on the live service at base
@@ -57,15 +57,16 @@ Run: `services/lens-api/scripts/phase5-smoke.sh` on bizera-wsl, 2026-09-17T09:07
 | No-fact lint (§10.3) | `scripts/schema_lint.py` in CI; negative tests per rule | pass |
 | Keyword parity (§10.4) | `tests/keyword-groups-parity.test.ts` (fails on a single-term drift — verified) | pass |
 | Golden fixtures (§10.1, 001D §9.2) | not yet labelled | **pending** (operator, C5; `scripts/golden.py` in PR #24) |
-| 001D §9.5 precision assignment | `GET /geo/stats.precision_assigned_share` — implemented in PR #24; live value not yet observed | **pending** |
+| 001D §9.5 precision assignment | `GET /geo/stats.precision_assigned_share` live on `50978ca`; no gazetteer imported yet so no location resolved beyond `TEXT_ONLY` | **pending** (Lao Data Map import) |
+| 001E §11 (Phase 7) | scorer/cluster/blocking implemented and fixture-tested; calibration candidate recorded (`test_multi_agent_same_land`) | **pending** reviewed sample (needs real observations) |
 
 ## Pull requests observed at snapshot
 
-Merged into the base since the previous snapshot: #19, #20, #21, #22, #23 (merge `a42479b`).
+Merged into the base since the previous snapshot: #24, #25, #26, #27 (merge `2768bfe`).
 
 | PR | Branch | Head | Disposition | Acceptance contract |
 |---|---|---|---|---|
-| #24 | `feat/phase6-geo-text` | this PR | approve | 001D text path (`geo.*` DDL, `GEO_RULE_V1`, endpoints, MCP), snapshot refresh, golden-set tooling |
+| #28 | `docs/sll-prop-data-001f` | this PR | approve | 001F draft (`schema_market.sql` unapplied, lint R6–R8, ERD), snapshot refresh |
 | #7 | `feat/assisted-navigation` | `bca3b7e` | code approved (review rounds 1–2); operational acceptance pending | Lao-group A/B: assist off vs on, ≥ 2× comment records, both counts reported on the PR |
 | #8 | `spike/layer-c-worker` | `ac7bc55` | code approved; **evidence hold** | Evidence gate GO from a ≥ 50-target frontier run with LensDB baseline (`layer-c-report.json` attached to the PR); no `/ingest` or `/seen` writes possible until then (machine-enforced) |
 
@@ -76,6 +77,8 @@ Merged into the base since the previous snapshot: #19, #20, #21, #22, #23 (merge
 3. **Phase 5 §8.1 / §8.3** — 7-day coverage sample and latency comparison; owner OP-Vily, starts when 0.7.0 is loaded.
 4. **Phase 6 golden gates** — ≥ 100 labelled records + ≥ 100 labelled locations from real capture (`scripts/golden.py export` → label → `build`); owner OP-Vily. 001C/001D freeze when `test_golden_fixture_gate` and `test_golden_locations_gate` pass in CI.
 5. **001D G1** — PostGIS + pg_trgm on the bizera-wsl cluster; unblocks the point path (`ST_Within`). Owner OP-Vily.
+6. **Lao Data Map import** — first `POST /admin/geo/import`; until then every location resolves `TEXT_ONLY`. Owner OP-Vily.
+7. **001E reviewed sample** — ≥ 50 market properties reviewed (CSV round-trip) once real observations exist; calibrates `MATCH_V1`. Owner OP-Vily.
 
 ## Release reconciliation
 

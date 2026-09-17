@@ -145,7 +145,7 @@ Golden sets (C5): `python scripts/golden.py export --out DIR --limit 120` writes
 
 ## Schema files and lint
 
-`app/schema.sql` = L0/L1 (core); `app/schema_<layer>.sql` = L2/L3 (`schema_extract.sql`, `schema_geo.sql`), additive only. `python scripts/schema_lint.py app` (also `tests/test_schema_lint.py`) rejects L2 statements that touch L0/L1 tables, bare fact-like column names (`price`, `owner`, `property`, `area`, `parcel`, `title`, BizProp+ ids), observation/claim tables without a NOT NULL 0..1 `confidence`, DROP/DELETE in the core file, and claims JSON that could carry a raw contact value. `LENS_CONTACT_KEY` (optional) is the pgcrypto key for `extract.contact_points.raw_value_enc`; unset ⇒ raw contact values are not stored (masked + hash only).
+`app/schema.sql` = L0/L1 (core); `app/schema_<layer>.sql` = L2/L3 (`schema_extract.sql`, `schema_geo.sql` applied; `schema_market.sql` is the 001F draft, linted but not applied until 001E freezes), additive only. `python scripts/schema_lint.py app` (also `tests/test_schema_lint.py`) rejects L2 statements that touch L0/L1 tables, bare fact-like column names (`price`, `owner`, `property`, `area`, `parcel`, `title`, BizProp+ ids), observation/claim tables without a NOT NULL 0..1 `confidence`, DROP/DELETE in the core file, claims JSON that could carry a raw contact value, price-like columns on `market.properties`, snapshot tables without `stats_version`/`computed_at`, and decision/link tables without `supersedes_*` (or with `updated_at`). `LENS_CONTACT_KEY` (optional) is the pgcrypto key for `extract.contact_points.raw_value_enc`; unset ⇒ raw contact values are not stored (masked + hash only).
 
 ## Retention (data minimisation, ordered)
 

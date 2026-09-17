@@ -15,6 +15,11 @@ Mechanical rules, enforced in CI (`pytest tests/test_schema_lint.py` and `python
       never removed by DDL; retention is code, policy-driven — I1) and no L2 schema objects.
   R5  Claims tables forbid `raw_value` inside their JSON payload (D5) — presence of the
       `CHECK (NOT (normalised ? 'raw_value'))` guard is required.
+  R6  `market.properties` carries no price-like column (`price*`, `asking*`, `amount*`, `*_lak`): statistics
+      live only in `*_snapshots` tables (001E §9, I4/I7).
+  R7  Every `*_snapshots` table has `stats_version` and `computed_at` NOT NULL (snapshots, never "the value").
+  R8  Every `*decisions` / `*_links` table (append-only history) has a `supersedes_*` column and no
+      `updated_at` column (rows are superseded, never edited — I8).
 
 Exit code 1 with one line per violation; 0 when clean.
 """
@@ -74,6 +79,22 @@ def lint_sql(name: str, sql: str, core: bool) -> list[str]:
         # R5 — claims never carry raw contact values
         if short.endswith("claims") and "normalised" in cols and "NOT (normalised ? 'raw_value')" not in body:
             v.append(f"{name}: R5 table `{tname}` must forbid `raw_value` inside `normalised` (D5)")
+        # R6 — market.properties has no price-like columns
+        if tname.lower() == "market.properties":
+            bad = [c for c in cols if c.startswith(("price", "asking", "amount")) or c.endswith("_lak")]
+            if bad:
+                v.append(f"{name}: R6 `market.properties` must not carry price-like columns {bad} (statistics are snapshots only)")
+        # R7 — snapshots carry stats_version + computed_at
+        if short.endswith("_snapshots"):
+            for req in ("stats_version", "computed_at"):
+                if not re.search(rf"^\s*{req}\s+\w+\s+NOT\s+NULL", body, re.I | re.M):
+                    v.append(f"{name}: R7 snapshot table `{tname}` needs `{req} … NOT NULL`")
+        # R8 — decision/link history is superseded, never edited
+        if short.endswith(("decisions", "_links")):
+            if not any(c.startswith("supersedes_") for c in cols):
+                v.append(f"{name}: R8 table `{tname}` needs a `supersedes_*` column (append-only history, I8)")
+            if "updated_at" in cols:
+                v.append(f"{name}: R8 table `{tname}` must not have `updated_at` (rows are superseded, not edited)")
     return v
 
 

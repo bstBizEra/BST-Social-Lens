@@ -48,3 +48,30 @@ def test_r5_claims_forbid_raw_value():
     ddl = ("CREATE TABLE IF NOT EXISTS extract.claims (\n    id BIGSERIAL PRIMARY KEY,\n"
            "    confidence REAL NOT NULL CHECK (confidence >= 0 AND confidence <= 1),\n    normalised JSONB NOT NULL\n);")
     assert any("R5" in x for x in lint_sql("schema_extract.sql", ddl, core=False))
+
+
+def test_r6_market_properties_has_no_price_columns():
+    ddl = "CREATE TABLE IF NOT EXISTS market.properties (\n    market_property_id TEXT PRIMARY KEY,\n    asking_median_lak NUMERIC\n);"
+    assert any("R6" in x for x in lint_sql("schema_market.sql", ddl, core=False))
+
+
+def test_r7_snapshots_need_version_and_time():
+    ddl = "CREATE TABLE IF NOT EXISTS market.property_stats_snapshots (\n    snapshot_id BIGSERIAL PRIMARY KEY,\n    stats_version TEXT NOT NULL\n);"
+    v = lint_sql("schema_market.sql", ddl, core=False)
+    assert any("R7" in x and "computed_at" in x for x in v)
+
+
+def test_r8_decisions_are_append_only():
+    ddl = "CREATE TABLE IF NOT EXISTS resolution.entity_decisions (\n    decision_id BIGSERIAL PRIMARY KEY,\n    updated_at TIMESTAMPTZ\n);"
+    v = lint_sql("schema_market.sql", ddl, core=False)
+    assert any("R8" in x and "supersedes_" in x for x in v) and any("R8" in x and "updated_at" in x for x in v)
+    ok = "CREATE TABLE IF NOT EXISTS advertiser.author_links (\n    link_id BIGSERIAL PRIMARY KEY,\n    supersedes_link_id BIGINT\n);"
+    assert [x for x in lint_sql("schema_market.sql", ok, core=False) if "R8" in x] == []
+
+
+def test_market_schema_is_drafted_but_not_applied():
+    """001F draft: schema_market.sql must lint clean and must NOT be in L2_SCHEMA_PATHS until 001E freezes."""
+    from app.db import L2_SCHEMA_PATHS
+
+    assert (APP / "schema_market.sql").exists()
+    assert "schema_market.sql" not in {p.name for p in L2_SCHEMA_PATHS}
