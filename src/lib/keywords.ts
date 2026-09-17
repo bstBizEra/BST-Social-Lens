@@ -32,7 +32,9 @@ export const DEFAULT_REQUIRED_TERMS: readonly string[] = ['ຂາຍ', 'ເຊ�
 
 export const DEFAULT_KEYWORD_SET: KeywordSet = {
   name: 'real-estate-lao',
-  include: ['ດິນ', 'ຂາຍ', 'ເຊົ່າ', 'ລາຄາ', 'ບ້ານ', 'ເມືອງ', 'ແຂວງ'],
+  // Lao property terms + location cues. Matching is substring: 'lat'/'long' also hit
+  // 'flat'/'along' in English text — accepted for recall; tighten with min_hits if noisy.
+  include: ['ດິນ', 'ຂາຍ', 'ເຊົ່າ', 'ລາຄາ', 'ເນື້ອທີ່', 'ບ້ານ', 'ເມືອງ', 'ແຂວງ', 'location', 'google map', 'lat', 'long'],
   exclude: [],
   require: [...DEFAULT_REQUIRED_TERMS],
   min_hits: 1,
