@@ -112,7 +112,19 @@ Verified live on bizera-wsl 2026-09-17: 401 without token; initialize / tools/li
 
 ## Extraction rules — `app/extract/` (Phase 6, 001C)
 
-`extract_observation(text, record_type, author_name, post_date, fx, contact_salt)` → `Observation` (signal class, asset type, claims, price observations). Pure Python, deterministic, no I/O; `fx(currency, date)` is injected so LAK normalisation is testable. Keyword groups live in `app/extract/keywords.py` and are mirrored in the extension (parity-tested). Persisted in the `extract` schema (`app/schema_extract.sql`, applied after `schema.sql`; kept additive by `scripts/schema_lint.py`, which CI runs). Endpoints/run loop follow. Tests: `tests/test_extract_rules.py`; the golden-fixture gate reads `tests/fixtures/extract/golden-v1.jsonl` when it exists.
+`extract_observation(text, record_type, author_name, post_date, fx, contact_salt)` → `Observation` (signal class, asset type, claims, price observations). Pure Python, deterministic, no I/O; `fx(currency, date)` is injected so LAK normalisation is testable. Keyword groups live in `app/extract/keywords.py` and are mirrored in the extension (parity-tested). Persisted in the `extract` schema (`app/schema_extract.sql`, applied after `schema.sql`; kept additive by `scripts/schema_lint.py`, which CI runs).
+
+Run model: a background loop (`LENS_EXTRACT_INTERVAL_MIN`, default 15, 0 = off) extracts records that have no current observation, whose `content_hash` changed, or whose observation is from an older `method_version`. Runs append; nothing is updated or deleted; one run at a time.
+
+| Endpoint | Semantics |
+|---|---|
+| `POST /admin/extract?since=&limit=&force=` | run now; `force=1` re-runs the current method version on already-observed records (new observations, old kept) |
+| `GET /observations?class=&asset=&since=&min_conf=&limit=` | current observations (one per record) |
+| `GET /observations/{key}?all=1` | current observation + claims + price observations; `all=1` returns every run's observation |
+| `GET /extract/stats` | by class / asset, UNCERTAIN share, `claims_without_confidence` (must be 0), price observations lacking FX, last runs |
+| `POST /admin/fx?currency=USD|THB&rate_date=&lak_per_unit=&source=BOL_REFERENCE|MANUAL` | load one FX reference rate (C2); rates within 7 days before the post date are used |
+
+Contact points (D5/C4): `LENS_CONTACT_SALT` (default derived from the API token) salts the hash; `LENS_CONTACT_KEY` encrypts the raw value with pgcrypto — unset ⇒ masked + hash only. Raw values are never in claims JSON and never returned by any endpoint or MCP tool. Tests: `tests/test_extract_rules.py`; the golden-fixture gate reads `tests/fixtures/extract/golden-v1.jsonl` when it exists.
 
 ## Schema files and lint
 

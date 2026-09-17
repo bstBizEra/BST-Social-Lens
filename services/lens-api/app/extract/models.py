@@ -33,7 +33,7 @@ LOW_CONFIDENCE = 0.3
 
 def _dec(v: Any) -> Any:
     if isinstance(v, Decimal):
-        return str(v.normalize()) if v == v.to_integral() else str(v)
+        return format(v.normalize(), 'f') if v == v.to_integral() else format(v, 'f')
     return v
 
 

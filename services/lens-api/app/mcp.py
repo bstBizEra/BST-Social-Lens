@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_INFO = {"name": "bst-social-lens", "version": "0.5.0"}
+SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.0"}
 
 # JSON-RPC error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL = -32700, -32600, -32601, -32602, -32603
@@ -82,6 +82,30 @@ TOOLS: list[dict[str, Any]] = [
             },
         },
     },
+    {
+        "name": "list_observations",
+        "description": "Phase 6 (001C): current L2 observations — classification per source record (signal class, asset type, confidences). Claims are claims, never facts.",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "signal_class": {"type": "string", "enum": ["PROPERTY_SALE", "PROPERTY_RENT", "PROPERTY_WANTED", "AGENT_ADVERTISEMENT", "DEVELOPER_PROJECT", "PRICE_DISCUSSION", "MARKET_INFORMATION", "NON_PROPERTY", "UNCERTAIN"]},
+                "asset_type": {"type": "string"},
+                "since": {"type": "string", "description": "ISO-8601 lower bound on observed_at"},
+                "min_conf": {"type": "number", "minimum": 0, "maximum": 1, "default": 0},
+                "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT, "default": 50},
+            },
+        },
+    },
+    {
+        "name": "get_observation",
+        "description": "Current observation for one source record with all its claims (field, value text, evidence span, method, confidence, review status) and price observations. Contact raw values are never returned.",
+        "inputSchema": {"type": "object", "properties": {"key": {"type": "string"}, "all": {"type": "boolean", "default": False}}, "required": ["key"]},
+    },
+    {
+        "name": "extraction_stats",
+        "description": "Extraction KPIs: observations by signal class / asset type, UNCERTAIN share, claims without confidence (must be 0), price observations lacking FX, recent runs.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 ToolFn = Callable[[dict[str, Any]], Awaitable[Any]]
@@ -126,6 +150,9 @@ class McpDispatcher:
             "get_stats": self.get_stats,
             "top_containers": self.top_containers,
             "list_seen": self.list_seen,
+            "list_observations": self.list_observations,
+            "get_observation": self.get_observation,
+            "extraction_stats": self.extraction_stats,
         }
 
     # ---------- tools ----------
@@ -156,6 +183,22 @@ class McpDispatcher:
 
     async def list_seen(self, a: dict[str, Any]) -> Any:
         return await self.db.seen_list(status=a.get("status"), limit=_clamp_limit(a, 50))
+
+    async def list_observations(self, a: dict[str, Any]) -> Any:
+        try:
+            min_conf = float(a.get("min_conf", 0.0))
+        except (TypeError, ValueError):
+            raise ValueError("min_conf must be a number")
+        return await self.db.extract.list_observations(a.get("signal_class"), a.get("asset_type"), _parse_since(a.get("since")), max(0.0, min(1.0, min_conf)), _clamp_limit(a, 50))
+
+    async def get_observation(self, a: dict[str, Any]) -> Any:
+        key = a.get("key")
+        if not isinstance(key, str) or ":" not in key:
+            raise ValueError("key must look like platform:post_id")
+        return await self.db.extract.get_observation(key, all_runs=bool(a.get("all", False)))
+
+    async def extraction_stats(self, a: dict[str, Any]) -> Any:
+        return await self.db.extract.stats()
 
     # ---------- JSON-RPC ----------
 
@@ -203,7 +246,8 @@ class McpDispatcher:
                     result = {"content": [{"type": "text", "text": str(e)}], "isError": True}
                 else:
                     text = json.dumps(data, ensure_ascii=False, default=_json_default)
-                    result = {"content": [{"type": "text", "text": text}], "structuredContent": {"result": data} if isinstance(data, (dict, list)) else None}
+                    # structuredContent must be JSON-native (datetimes/Decimals from asyncpg are not): round-trip through the text form.
+                    result = {"content": [{"type": "text", "text": text}], "structuredContent": {"result": json.loads(text)} if isinstance(data, (dict, list)) else None}
                     if result["structuredContent"] is None:
                         del result["structuredContent"]
             else:
