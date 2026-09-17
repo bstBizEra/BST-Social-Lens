@@ -1,7 +1,7 @@
 # SLL-PROP-DATA-001A — Domain & Data Boundary v0.1
 
 - Parent: `SLL-PROP-DATA-001` — Social Lens Property Market Intelligence Data Architecture v0.1 (frozen)
-- Status: **Draft for freeze** (OP-Vily decides; §9 lists the decisions that block freeze)
+- Status: **Frozen v0.1** (2026-09-17 — OP-Vily delegated the freeze; D1–D7 adopted as recommended, see §9)
 - Date: 2026-09-17
 - Scope: terminology, ownership, system-of-record boundaries, invariants, merge/link rules, and
   exactly what BizProp+ may consume. **No tables, no DDL** — that is 001F, after 001B–001E.
@@ -125,9 +125,9 @@ COMPARABLE / NEARBY / REJECTED_MATCH`) on its side; Social Lens never learns Biz
 | Layer C worker refreshes engagement on L1 rows | Compatible (I7 says price/location are time-series; engagement refresh on L1 is source-level) | Engagement history becomes an L2 time-series if ever needed |
 | `/mcp` tools read L1 directly | Fine for BST-internal agents; **not** the BizProp+ path | Reference API for BizProp+ is separate (001H); `/mcp` stays internal |
 
-## 9. Decisions required to freeze 001A
+## 9. Decisions (adopted 2026-09-17 — recommendations accepted as written)
 
-| ID | Decision | Recommendation |
+| ID | Decision | Adopted |
 |---|---|---|
 | D1 | Server-side L0: ship raw payloads to LensDB (`POST /raw`, hashed, size-capped, retention-governed)? | **Yes** — without it the provenance chain ends at L1 |
 | D2 | Extension default `storeMode` → `all` when L2 classification exists (keywords = lead signal only)? | **Yes**, staged: keep `matched` until classification (001C) ships |

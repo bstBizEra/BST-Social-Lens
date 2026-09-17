@@ -1,6 +1,6 @@
 # ADR-0005: Social Lens as a market-intelligence data platform — roadmap extension (Phases 5–9)
 
-- Status: **Proposed** (Accepted when OP-Vily freezes SLL-PROP-DATA-001A and confirms the release cut in §5)
+- Status: **Accepted** (2026-09-17; OP-Vily delegated the call — 001A frozen with D1–D7 as recommended, release cut in §5 confirmed, Portal replaces the Console with the Console kept read-only until the Portal ships in Phase 7)
 - Date: 2026-09-17
 - Deciders: OP-Vily
 - SDLC gate: 3 (Architecture Design) → feeds gates 1–2 (PRD / decomposition) for each phase
@@ -243,11 +243,11 @@ Negative / accepted
 - **Jump to DDL from the parent** — rejected by the parent itself: 001A–001E freeze semantics
   first so "duplicate property" is never encoded ambiguously.
 
-## 8. Decisions needed to move this ADR to Accepted
+## 8. Decisions taken at acceptance (2026-09-17)
 
-- Freeze 001A (answers to D1–D7; recommendations are in 001A §9).
-- Confirm the release cut in §5 (or fold Phases 5+6 into one release if throughput allows).
-- Confirm that the Portal replaces the Console (vs. Console kept as a read-only view).
+- 001A frozen; D1–D7 adopted as recommended.
+- Release cut in §5 confirmed as written (no folding of Phases 5+6).
+- The Portal replaces the Console in Phase 7; until then the Console stays as a read-only view of L1.
 
 ## References
 

@@ -64,7 +64,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 | 0 Governance | `docs/00-governance` | **`STATUS.md`** — auditable status snapshot, updated by PR only (the Claude Project `status/` docs are working context, not truth) |
 | 1 PRD Review | `docs/01-product-requirements` | `ROADMAP.md` (Phases 0–9, ADR-0005); PRD per platform phase to be authored from SLL-PROP-DATA-001 children |
 | 2 Requirement Decomposition | `docs/01-product-requirements` | pending |
-| 3 Architecture Design | `docs/03-architecture` | **done** for capture (ADR-0001…0004). Platform era: **ADR-0005 (proposed)** adopts parent `SLL-PROP-DATA-001` (frozen) → `001A` (draft for freeze) → 001B–001H |
+| 3 Architecture Design | `docs/03-architecture` | **done** for capture (ADR-0001…0004). Platform era: **ADR-0005 (accepted)** adopts parent `SLL-PROP-DATA-001` (frozen) → `001A` (frozen) → 001B (Phase 5, in progress) → 001C–001H |
 | 4 Detailed Solution Design | `docs/03-architecture`, `docs/04-data-api-integration` | **done** — schema v1 in `src/lib/types.ts`; ingest contract + LensDB schema in `services/lens-api` |
 | 5 Security/Compliance Design | `docs/05-security-privacy` | pending — Lao EDPL 2017 mapping, ToS exposure register |
 | 6 Implementation Planning | `docs/07-engineering-devsecops` | pending |
