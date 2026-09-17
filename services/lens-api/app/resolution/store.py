@@ -15,6 +15,8 @@ from decimal import Decimal
 from statistics import median
 from typing import Any
 
+from ..extract.store import dq_for_observations
+from ..quality.dq import property_dq
 from .cluster import Cluster, ClusterInput
 from .match import Score, Side
 
@@ -184,10 +186,13 @@ class ResolutionStore:
         human = any(r["source"] == "HUMAN" and r["decision"] == "CONFIRMED" for r in rows)
         conf = 100.0 if human else (sum(scores) / len(scores) if scores else 0.0)
         review_state = "PENDING_REVIEW" if any(r["decision"] == "REVIEW_REQUIRED" for r in rows) else "CLEAN"
+        # 001G §2: property DQ = observation-weighted mean of current observations' DQ (independent of match scores)
+        dq = await dq_for_observations(con, obs_ids)
+        _, dq_grade = property_dq([(dq[o].score, 1) for o in obs_ids if o in dq])
         await con.execute(
-            """INSERT INTO market.property_stats_snapshots (market_property_id, stats_version, observation_count, advertiser_count, cluster_count, first_observed, last_observed, asking_stats, resolution_confidence, review_state)
-               VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10)""",
-            mp, stats_version, len(rows), adv or 0, clusters or 0, min(r["observed_at"] for r in rows), max(r["observed_at"] for r in rows), _j(asking), round(conf, 2), review_state)
+            """INSERT INTO market.property_stats_snapshots (market_property_id, stats_version, observation_count, advertiser_count, cluster_count, first_observed, last_observed, asking_stats, resolution_confidence, review_state, dq_grade)
+               VALUES ($1,$2,$3,$4,$5,$6,$7,$8::jsonb,$9,$10,$11)""",
+            mp, stats_version, len(rows), adv or 0, clusters or 0, min(r["observed_at"] for r in rows), max(r["observed_at"] for r in rows), _j(asking), round(conf, 2), review_state, dq_grade)
 
     # ---------------------------------------------------------------- read
 
@@ -219,6 +224,28 @@ class ResolutionStore:
             hist = await con.fetch("SELECT decision_id, observation_id, decision, source, supersedes_decision_id, created_at FROM resolution.entity_decisions WHERE market_property_id=$1 ORDER BY decision_id", mp)
             prices = await con.fetch("SELECT p.* FROM extract.price_observations p JOIN resolution.current_decisions d ON d.observation_id=p.observation_id WHERE d.market_property_id=$1 ORDER BY p.observed_at", mp)
         return {**_row(p), "stats": _row(snap) if snap else None, "observations": [_row(r) for r in obs], "price_observations": [_row(r) for r in prices], "decision_history": [_row(r) for r in hist]}
+
+    async def recompute_snapshots(self, since: datetime | None = None, stats_version: str = "1.0.0") -> dict[str, Any]:
+        """001G §7 `POST /admin/quality/recompute`: a NEW snapshot row (never an update) for every ACTIVE property —
+        or only those with a current observation observed after `since`."""
+        async with self.db.pool.acquire() as con:
+            if since is None:
+                mps = await con.fetch("SELECT market_property_id FROM market.properties WHERE status='ACTIVE' ORDER BY 1")
+            else:
+                mps = await con.fetch(
+                    """SELECT DISTINCT p.market_property_id FROM market.properties p
+                       JOIN resolution.current_decisions d ON d.market_property_id = p.market_property_id
+                       JOIN extract.observations o ON o.observation_id = d.observation_id
+                       WHERE p.status='ACTIVE' AND o.observed_at > $1 ORDER BY 1""", since)
+            n = 0
+            async with con.transaction():
+                for r in mps:
+                    await self.snapshot_stats(con, r["market_property_id"], stats_version)
+                    n += 1
+            grades = await con.fetch(
+                """SELECT dq_grade, count(*) AS n FROM (SELECT DISTINCT ON (market_property_id) dq_grade FROM market.property_stats_snapshots
+                   ORDER BY market_property_id, computed_at DESC) x GROUP BY 1""")
+        return {"properties": n, "since": since.isoformat() if since else None, "latest_dq_grades": {r["dq_grade"]: r["n"] for r in grades}}
 
     async def stats(self) -> dict[str, Any]:
         async with self.db.pool.acquire() as con:

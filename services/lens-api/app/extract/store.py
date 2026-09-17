@@ -226,23 +226,47 @@ WHERE o.signal_class IN ('PROPERTY_SALE','PROPERTY_RENT','PROPERTY_WANTED')
 """
 
 
+def _dq_input(r: Any, decision: str | None) -> DqInput:
+    return DqInput(
+        price_present=r["price_conf"] is not None, price_confidence=float(r["price_conf"] or 0), price_has_lak=bool(r["price_lak"]),
+        area_present=r["area_conf"] is not None, area_confidence=float(r["area_conf"] or 0),
+        location_precision=r["precision"] or ("TEXT_ONLY" if r["has_loc_claims"] else "UNKNOWN"),
+        post_date_present=r["post_date"] is not None, payload_hash_present=bool(r["first_payload_hash"]),
+        raw_row_present=bool(r["raw_row"]), raw_body_present=bool(r["raw_body"]), decision=decision,
+    )
+
+
+async def _current_decisions(con: Any, obs_ids: list[int] | None) -> dict[int, str]:
+    """observation_id → current 001E decision, when resolution.* exists (flag on); {} otherwise."""
+    if not await con.fetchval("SELECT to_regclass('resolution.current_decisions') IS NOT NULL"):
+        return {}
+    if obs_ids is None:
+        rows = await con.fetch("SELECT observation_id, decision FROM resolution.current_decisions")
+    else:
+        rows = await con.fetch("SELECT observation_id, decision FROM resolution.current_decisions WHERE observation_id = ANY($1::bigint[])", obs_ids)
+    return {r["observation_id"]: r["decision"] for r in rows}
+
+
+async def dq_for_observations(con: Any, obs_ids: list[int] | None = None) -> dict[int, Any]:
+    """observation_id → DqResult for current property observations (all, or the given ids). Entity-match component
+    uses the current 001E decision when resolution is enabled, singleton credit otherwise (001G §2)."""
+    sql = _DQ_VIEW + (" AND o.observation_id = ANY($1::bigint[])" if obs_ids is not None else "")
+    rows = await con.fetch(sql, obs_ids) if obs_ids is not None else await con.fetch(sql)
+    decisions = await _current_decisions(con, obs_ids)
+    return {r["observation_id"]: score_observation(_dq_input(r, decisions.get(r["observation_id"]))) for r in rows}
+
+
 async def quality_stats(db: Any) -> dict[str, Any]:
-    """DQ distribution + validation exceptions over current property observations (computed on read; snapshots come with 001F)."""
+    """DQ distribution + validation exceptions over current property observations (computed on read; property grades live on snapshots)."""
     async with db.pool.acquire() as con:
         rows = await con.fetch(_DQ_VIEW)
+        decisions = await _current_decisions(con, None)
     by_grade: dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0}
     total = 0
     exceptions: dict[str, int] = {}
     low: list[dict[str, Any]] = []
     for r in rows:
-        x = DqInput(
-            price_present=r["price_conf"] is not None, price_confidence=float(r["price_conf"] or 0), price_has_lak=bool(r["price_lak"]),
-            area_present=r["area_conf"] is not None, area_confidence=float(r["area_conf"] or 0),
-            location_precision=r["precision"] or ("TEXT_ONLY" if r["has_loc_claims"] else "UNKNOWN"),
-            post_date_present=r["post_date"] is not None, payload_hash_present=bool(r["first_payload_hash"]),
-            raw_row_present=bool(r["raw_row"]), raw_body_present=bool(r["raw_body"]), decision=None,
-        )
-        res = score_observation(x)
+        res = score_observation(_dq_input(r, decisions.get(r["observation_id"])))
         by_grade[res.grade] += 1
         total += res.score
         for e in evaluate_rules({"amount_lak": r["amount_lak"], "area_sqm": r["area_sqm"], "price_per_sqm_lak": r["psqm"],
@@ -255,7 +279,8 @@ async def quality_stats(db: Any) -> dict[str, Any]:
     n = len(rows)
     return {"dq_version": DQ_VERSION, "observations": n, "by_grade": by_grade, "mean_score": round(total / n, 1) if n else None,
             "share_b_or_better": round((by_grade["A"] + by_grade["B"]) / n, 4) if n else None, "exceptions": exceptions,
-            "lowest": low, "note": "computed on read over current property observations; entity_match uses singleton credit until 001E is wired"}
+            "lowest": low, "entity_match_source": "resolution.current_decisions" if decisions else "singleton credit (resolution disabled or no decisions)",
+            "note": "computed on read over current property observations; property grades are on market.property_stats_snapshots.dq_grade"}
 
 
 def _row(r: Any) -> dict[str, Any]:

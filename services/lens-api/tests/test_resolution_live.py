@@ -27,6 +27,7 @@ POSTS = [
     ("facebook:m4", "ເຈົ້າຂອງຂາຍເອງ ດິນ 20x30 ບ້ານດົງໂດກ ລາຄາ 2.3 ຕື້ ໂທ 020 5544 4444 " + PIN, "own"),
     ("facebook:m5", "ຂາຍດິນ 20x30 ບ້ານດົງໂດກ ລາຄາ 2.5 ຕື້ ໂທ 020 5511 1111 " + PIN, "a1"),      # exact re-post of m1 → same cluster
     ("facebook:m6", "ຂາຍດິນ 20x30 ເມືອງປາກເຊ ລາຄາ 2.5 ຕື້ ໂທ 020 5566 6666", "a6"),               # decoy, different district
+    ("facebook:m7", "ຂາຍດິນ ບ້ານດົງໂດກ ລາຄາ 3.2 ຕື້ ໂທ 020 5577 7777 " + PIN, "a7"),               # same pin, no size, other price → review band
 ]
 
 
@@ -71,7 +72,7 @@ def test_resolution_links_multi_agent_land_and_keeps_every_observation(env):
 
     main = env
     res = main.loop.run_until_complete(run_resolution(main.resolution_store, trigger="test"))
-    assert res["records_in"] == 6 and res["decisions"] == 6 and res["clusters"] == 1
+    assert res["records_in"] == 7 and res["decisions"] == 7 and res["clusters"] == 1
 
     async def read():
         async with main.db.pool.acquire() as con:
@@ -80,7 +81,7 @@ def test_resolution_links_multi_agent_land_and_keeps_every_observation(env):
             obs_n = await con.fetchval("SELECT count(*) FROM extract.observations")
             price_n = await con.fetchval("SELECT count(*) FROM extract.price_observations")
             clus = await con.fetch("SELECT cluster_id, array_agg(record_key ORDER BY record_key) AS m FROM resolution.cluster_members GROUP BY 1")
-            snaps = await con.fetch("SELECT market_property_id, observation_count, advertiser_count, cluster_count, asking_stats::text, review_state, resolution_confidence FROM market.property_stats_snapshots ORDER BY computed_at")
+            snaps = await con.fetch("SELECT market_property_id, observation_count, advertiser_count, cluster_count, asking_stats::text, review_state, resolution_confidence, dq_grade FROM market.property_stats_snapshots ORDER BY computed_at")
             return [dict(r) for r in dec], [dict(r) for r in props], obs_n, price_n, [dict(r) for r in clus], [dict(r) for r in snaps]
 
     dec, props, obs_n, price_n, clus, snaps = main.loop.run_until_complete(read())
@@ -92,16 +93,20 @@ def test_resolution_links_multi_agent_land_and_keeps_every_observation(env):
     same = {k for k, d in by_key.items() if d["market_property_id"] == land_mp}
     assert same == {"facebook:m1", "facebook:m2", "facebook:m3", "facebook:m4", "facebook:m5"}, same
     assert by_key["facebook:m6"]["market_property_id"] != land_mp
-    # exactly one seed (the first observation processed opens the property as SEPARATE_CANDIDATE); the other four link HIGH
-    linked = [by_key[k]["decision"] for k in sorted(same)]
-    assert linked.count("SEPARATE_CANDIDATE") == 1 and linked.count("HIGH_CONFIDENCE_MATCH") == 4, linked
+    # Dongdok: one seed opens a property (SEPARATE_CANDIDATE), four link HIGH, and m7 (pin only, no size) lands in the review
+    # band against whichever of m5/m7 was processed first — exactly one REVIEW_REQUIRED item, on its own provisional property.
+    dd = ["facebook:m1", "facebook:m2", "facebook:m3", "facebook:m4", "facebook:m5", "facebook:m7"]
+    decisions = sorted(by_key[k]["decision"] for k in dd)
+    assert decisions == ["HIGH_CONFIDENCE_MATCH"] * 4 + ["REVIEW_REQUIRED", "SEPARATE_CANDIDATE"], decisions
+    review_key = next(k for k in dd if by_key[k]["decision"] == "REVIEW_REQUIRED")
+    assert review_key in ("facebook:m5", "facebook:m7") and by_key["facebook:m7"]["market_property_id"] != land_mp
     assert "HIGH_CONFIDENCE_MATCH" in (by_key["facebook:m1"]["decision"], by_key["facebook:m5"]["decision"])  # same cluster forces HIGH
     assert all(d["source"].startswith("MATCH_V") for d in dec)
-    # nothing collapsed: 6 observations, 6 price observations, 2 properties, prices 2.3–2.7 all present in the snapshot
-    assert obs_n == 6 and price_n == 6 and len(props) == 2 and all(p["status"] == "ACTIVE" for p in props)
+    # nothing collapsed: 7 observations, 7 price observations, 3 properties, prices 2.3–2.7 all present in the land snapshot
+    assert obs_n == 7 and price_n == 7 and len(props) == 3 and all(p["status"] == "ACTIVE" for p in props)
     snap = next(s for s in reversed(snaps) if s["market_property_id"] == land_mp)
     stats = json.loads(snap["asking_stats"])["ASKING_SALE"]
-    assert snap["observation_count"] == 5 and snap["advertiser_count"] == 4 and snap["cluster_count"] == 1
+    assert snap["observation_count"] == 5 and snap["advertiser_count"] == 4 and snap["cluster_count"] == 1 and snap["dq_grade"] in "ABCD"
     assert stats["min_lak"] == "2300000000" and stats["max_lak"] == "2700000000" and stats["n"] == 5 and stats["dispersion"] > 0.1
 
 
@@ -131,7 +136,7 @@ def test_rerun_is_idempotent_and_human_decision_is_respected(env):
 
     cur, hist = main.loop.run_until_complete(check())
     assert cur == {"decision": "UNLINKED", "source": "HUMAN"} and hist == 2  # force re-run did not touch the human row (E4)
-    assert res["decisions"] == 5  # the other five were re-decided (new rows), history grows
+    assert res["decisions"] == 6  # the other six were re-decided (new rows), history grows
     assert after["unexplained_machine_decisions"] == 0 and before["unexplained_machine_decisions"] == 0
     assert after["properties_total"] >= before["properties_total"]  # ids never deleted
 
@@ -143,8 +148,8 @@ def test_http_and_mcp_market_reads(env):
     h = {"Authorization": "Bearer test-token"}
     with TestClient(main.app) as client:
         r = client.get("/market/properties?village=V-XTN-DDK", headers=h)
-        assert r.status_code == 200 and r.json()["count"] >= 1
-        mp = r.json()["properties"][0]["market_property_id"]
+        assert r.status_code == 200 and r.json()["count"] >= 2  # the land property + m7's provisional singleton
+        mp = max(r.json()["properties"], key=lambda p: (p.get("observation_count") or 0))["market_property_id"]
         p = client.get(f"/market/properties/{mp}", headers=h).json()
         assert p["stats"]["asking_stats"]["ASKING_SALE"]["n"] >= 4 and len(p["decision_history"]) >= len(p["observations"])
         assert all("signals" in o for o in p["observations"])
@@ -155,3 +160,67 @@ def test_http_and_mcp_market_reads(env):
         assert mcp.status_code == 200 and "asking_stats" in mcp.text
         r = client.post("/admin/resolve", headers=h)
         assert r.status_code == 200 and r.json()["decisions"] == 0
+
+
+def test_match_queue_csv_round_trip_and_recompute(env, tmp_path):
+    """001G §6 match queue: export the REVIEW_REQUIRED item, CONFIRM it → HUMAN CONFIRMED on the proposed property,
+    provisional singleton SUPERSEDED with a MERGE transition, one audit row, snapshots recomputed; then /admin/quality/recompute."""
+    import csv
+    import subprocess
+    import sys as _sys
+
+    main = env
+    envv = {**os.environ, "LENS_DB_DSN": DSN, "LENS_REVIEWER": "vily"}
+    run = lambda *a: subprocess.run([_sys.executable, "scripts/review.py", *a], cwd=Path(__file__).resolve().parents[1], env=envv, capture_output=True, text=True)  # noqa: E731
+    r = run("export", "--queue", "match", "--out", str(tmp_path))
+    assert r.returncode == 0, r.stderr
+    path = tmp_path / "review-match.csv"
+    rows = list(csv.DictReader(path.open(encoding="utf-8")))
+    assert len(rows) == 1 and rows[0]["record_key"] in ("facebook:m5", "facebook:m7") and rows[0]["proposed_property_id"] and "raw_value" not in path.read_text(encoding="utf-8")
+    assert "5577" not in path.read_text(encoding="utf-8") and "5511" not in path.read_text(encoding="utf-8")  # contact masked in context
+    own, proposed = rows[0]["market_property_id"], rows[0]["proposed_property_id"]
+    rows[0]["action"], rows[0]["reason"] = "CONFIRM", "same pin, owner confirmed by phone"
+    with path.open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, list(rows[0].keys()))
+        w.writeheader()
+        w.writerows(rows)
+    r = run("import", "--file", str(path), "--reviewer", "vily")
+    assert r.returncode == 0 and "imported 1 action" in r.stdout, r.stdout + r.stderr
+    r = run("import", "--file", str(path), "--reviewer", "vily")  # second import: item already reviewed → skipped, nothing written
+    assert "already reviewed" in r.stdout and "imported 0" in r.stdout
+
+    async def check():  # fresh connection: the earlier TestClient lifespan closed the module pool
+        import asyncpg
+
+        con = await asyncpg.connect(DSN)
+        try:
+            cur = await con.fetch("SELECT o.record_key, d.decision, d.source, d.market_property_id FROM resolution.current_decisions d JOIN extract.observations o USING (observation_id) WHERE o.record_key LIKE 'facebook:m%' ORDER BY 1")
+            props = await con.fetch("SELECT market_property_id, status, superseded_by FROM market.properties WHERE market_property_id IN ($1,$2)", own, proposed)
+            tr = await con.fetch("SELECT source_property_id, target_property_ids FROM resolution.property_transitions WHERE kind='MERGE'")
+            audit = await con.fetch("SELECT action, after::text AS after FROM audit.events WHERE queue='match'")
+            survivor = next(p["market_property_id"] for p in props if p["status"] == "ACTIVE")
+            snap = await con.fetchrow("SELECT observation_count, dq_grade FROM market.property_stats_snapshots WHERE market_property_id=$1 ORDER BY computed_at DESC LIMIT 1", survivor)
+            return {r["record_key"]: dict(r) for r in cur}, {p["market_property_id"]: dict(p) for p in props}, [dict(r) for r in tr], audit, dict(snap), survivor
+        finally:
+            await con.close()
+
+    cur, props, tr, audit, snap, survivor = asyncio.run(check())
+    absorbed = proposed if survivor == own else own
+    # every Dongdok observation except the human-UNLINKED m2 now sits on the surviving property; the absorbed one is SUPERSEDED, not deleted
+    assert {cur[k]["market_property_id"] for k in ("facebook:m1", "facebook:m3", "facebook:m4", "facebook:m5", "facebook:m7")} == {survivor}
+    assert cur["facebook:m2"]["decision"] == "UNLINKED" and cur["facebook:m6"]["market_property_id"] not in (own, proposed)
+    assert props[absorbed]["status"] == "SUPERSEDED" and props[absorbed]["superseded_by"] == survivor and props[survivor]["status"] == "ACTIVE"
+    assert tr == [{"source_property_id": absorbed, "target_property_ids": [survivor]}]
+    assert len(audit) == 1 and audit[0]["action"] == "CONFIRM" and '"merged_observations": 1' in audit[0]["after"]
+    assert snap["observation_count"] == 5 and snap["dq_grade"] in "ABCD"
+
+    from fastapi.testclient import TestClient
+
+    h = {"Authorization": "Bearer test-token"}
+    with TestClient(main.app) as client:
+        r = client.post("/admin/quality/recompute", headers=h)
+        assert r.status_code == 200 and r.json()["properties"] >= 2 and sum(r.json()["latest_dq_grades"].values()) >= 2, r.json()
+        q = client.get("/quality/stats", headers=h).json()
+        assert q["entity_match_source"] == "resolution.current_decisions"
+        r = client.post("/admin/quality/recompute?since=2999-01-01T00:00:00Z", headers=h)
+        assert r.status_code == 200 and r.json()["properties"] == 0

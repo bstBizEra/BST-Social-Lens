@@ -1,14 +1,24 @@
 #!/usr/bin/env python3
 """Review CSV round-trip (SLL-PROP-DATA-001G §6) — the workflow until the Portal exists.
 
-  export --queue {extraction|location} --limit N --out DIR     write one CSV of open items with evidence (contacts masked)
-  import --file CSV --reviewer ID [--dry-run]                   validate, write superseding HUMAN rows + one audit row per action
+  export --queue {extraction|location|match} --limit N --out DIR   write one CSV of open items with evidence (contacts masked)
+  import --file CSV --reviewer ID [--dry-run]                       validate, write superseding HUMAN rows + one audit row per action
 
-Queues implemented now: extraction (extract.claims) and location (geo.resolved_locations). The match queue
-needs resolution.* (001F) and is refused until then. CSV files are working aids: not committed, deleted after import.
+Queues: extraction (extract.claims), location (geo.resolved_locations), match (resolution.current_decisions —
+needs `LENS_RESOLUTION_ENABLED=1` so resolution.* exists; refused otherwise). CSV files are working aids: not
+committed, deleted after import.
 
 Actions (001G §3): CONFIRM (HUMAN row with the same value), CORRECT (HUMAN row with `corrected_value`),
 REJECT (HUMAN row marked REJECTED), DEFER (audit only; item stays open). A machine row is never edited.
+
+Match queue semantics (001E §7 / 001G §3): an item is an observation whose current machine decision is
+REVIEW_REQUIRED — it sits on its own provisional property (`market_property_id`) with a proposed peer property
+(`proposed_property_id`, the best-scoring candidate). CONFIRM = the proposed match is right → HUMAN `CONFIRMED`
+on `proposed_property_id`; CORRECT = link to another property → `corrected_value` = an ACTIVE `MP-…` id;
+REJECT = the proposed match is wrong, the observation is its own property → HUMAN `CONFIRMED` on its current
+provisional property (evidence is never dropped — the rejected target is recorded in the audit row);
+DEFER = audit only. A provisional property left with no current observation is marked SUPERSEDED by the
+target with a MERGE transition, and statistics snapshots are recomputed for every touched property.
 """
 from __future__ import annotations
 
@@ -28,13 +38,15 @@ sys.path.insert(0, str(HERE))
 from scripts.golden import _dsn, mask  # noqa: E402
 
 ACTIONS = {"CONFIRM", "CORRECT", "REJECT", "DEFER"}
-QUEUES = {"extraction", "location"}
+QUEUES = {"extraction", "location", "match"}
 CLAIM_FIELDS_CORRECTABLE = {"PRICE": "amount_original", "AREA": "area_sqm", "TRANSACTION_TYPE": "transaction_type",
                             "ASSET_TYPE": "asset_type", "ADVERTISER_ROLE": "advertiser_role", "LOCATION_TEXT": "value_text"}
 PRECISIONS = {"EXACT_COORDINATE", "PARCEL_APPROXIMATE", "VILLAGE", "DISTRICT", "PROVINCE", "TEXT_ONLY", "UNKNOWN"}
 
 EXT_COLS = ["claim_id", "observation_id", "record_key", "field", "value_text", "normalised", "confidence", "review_status", "signals",
             "context", "action", "corrected_value", "reason"]
+MATCH_COLS = ["decision_id", "observation_id", "record_key", "market_property_id", "proposed_property_id", "proposed_peer_record_key",
+              "candidate_id", "score", "forced_rule", "signals", "blocking_reasons", "other_candidates", "context", "action", "corrected_value", "reason"]
 LOC_COLS = ["resolved_location_id", "observation_id", "record_key", "precision", "province_code", "district_code", "village_code",
             "lat", "lng", "confidence", "signals", "context", "action", "corrected_value", "reason"]
 
@@ -58,6 +70,25 @@ async def export(queue: str, limit: int, out: Path) -> None:
                      AND (c.review_status = 'LOW_CONFIDENCE' OR c.confidence < 0.5 OR o.signal_class = 'UNCERTAIN')
                    ORDER BY o.observed_at DESC LIMIT $1""", limit)
             cols = EXT_COLS
+        elif queue == "match":
+            if not await con.fetchval("SELECT to_regclass('resolution.current_decisions') IS NOT NULL"):
+                sys.exit("match queue needs resolution.* — start lens-api once with LENS_RESOLUTION_ENABLED=1 (001F draft schema)")
+            rows = await con.fetch(
+                """SELECT d.decision_id, d.observation_id, o.record_key, d.market_property_id,
+                          c.market_property_id AS proposed_property_id, po.record_key AS proposed_peer_record_key,
+                          c.candidate_id, c.score, c.forced_rule, c.signals::text AS signals, c.blocking_reasons::text AS blocking_reasons,
+                          (SELECT string_agg(x.market_property_id || ':' || x.score, ' ' ORDER BY x.score DESC)
+                             FROM resolution.entity_candidates x
+                             WHERE x.observation_id = d.observation_id AND x.candidate_id <> c.candidate_id AND x.market_property_id IS NOT NULL) AS other_candidates,
+                          r.text
+                   FROM resolution.current_decisions d
+                   JOIN extract.observations o ON o.observation_id = d.observation_id
+                   LEFT JOIN resolution.entity_candidates c ON c.candidate_id = d.candidate_id
+                   LEFT JOIN extract.observations po ON po.observation_id = c.peer_observation_id
+                   LEFT JOIN records r ON r.key = o.record_key
+                   WHERE d.decision = 'REVIEW_REQUIRED' AND d.source <> 'HUMAN'
+                   ORDER BY c.score DESC NULLS LAST, d.decision_id LIMIT $1""", limit)
+            cols = MATCH_COLS
         else:
             rows = await con.fetch(
                 """SELECT l.resolved_location_id, l.observation_id, o.record_key, l.precision, l.province_code, l.district_code, l.village_code,
@@ -107,6 +138,12 @@ def validate_rows(queue: str, rows: list[dict]) -> tuple[list[dict], list[tuple[
         if queue == "extraction" and a == "CORRECT" and row.get("field") not in CLAIM_FIELDS_CORRECTABLE:
             skipped.append((i, f"field {row.get('field')} not correctable via CSV"))
             continue
+        if queue == "match" and a == "CORRECT" and not re.fullmatch(r"MP-[0-9A-HJKMNP-TV-Z]{26}", cv):
+            skipped.append((i, "corrected_value must be an MP-<ULID> market property id"))
+            continue
+        if queue == "match" and a == "CONFIRM" and not (row.get("proposed_property_id") or "").strip():
+            skipped.append((i, "CONFIRM needs a proposed_property_id (no candidate) — use CORRECT with a property id or REJECT"))
+            continue
         if queue == "location" and a == "CORRECT":
             parts = dict(p.split("=", 1) for p in cv.split(";") if "=" in p)
             if "precision" in parts and parts["precision"] not in PRECISIONS:
@@ -133,13 +170,21 @@ async def import_(queue: str, file: Path, reviewer: str, dry_run: bool) -> None:
         return
     con = await asyncpg.connect(_dsn())
     done = 0
+    touched: set[str] = set()
     try:
         async with con.transaction():
             for row in ok:
                 if queue == "extraction":
                     done += await _apply_claim(con, row, reviewer, batch_id)
+                elif queue == "match":
+                    done += await _apply_match(con, row, reviewer, batch_id, touched)
                 else:
                     done += await _apply_location(con, row, reviewer, batch_id)
+            if touched:
+                from app.resolution.store import ResolutionStore  # snapshots (001E §9) for every property a decision touched
+
+                for mp in sorted(touched):
+                    await ResolutionStore.snapshot_stats(None, con, mp)
     finally:
         await con.close()
     print(f"imported {done} action(s) in batch {batch_id}; {len(skipped)} skipped")
@@ -177,6 +222,70 @@ async def _apply_claim(con, row: dict, reviewer: str, batch_id: str) -> int:
         "INSERT INTO audit.events (actor, role, queue, item_table, item_id, action, before, after, reason, batch_id) VALUES ($1,'reviewer','extraction','extract.claims',$2,$3,$4::jsonb,$5::jsonb,$6,$7)",
         reviewer, str(cid), a, json.dumps({"value_text": orig["value_text"], "review_status": orig["review_status"]}),
         json.dumps({"value_text": value_text, "review_status": status or "DEFERRED"}), row.get("reason") or None, batch_id)
+    return 1
+
+
+async def _apply_match(con, row: dict, reviewer: str, batch_id: str, touched: set[str]) -> int:
+    did = int(row["decision_id"])
+    orig = await con.fetchrow("SELECT * FROM resolution.entity_decisions WHERE decision_id=$1", did)
+    if not orig:
+        print(f"skip decision {did}: not found")
+        return 0
+    if await con.fetchval("SELECT 1 FROM resolution.entity_decisions WHERE supersedes_decision_id=$1", did):
+        print(f"skip decision {did}: already reviewed")
+        return 0
+    a, cv = row["_action"], row["_cv"]
+    own = orig["market_property_id"]
+    proposed = (row.get("proposed_property_id") or "").strip() or None
+    other = {"CONFIRM": proposed, "CORRECT": cv or None}.get(a)
+    moved = 0
+    survivor = own
+    if a == "REJECT":
+        # the proposed match is wrong: the observation is its own property — HUMAN CONFIRMED on it (evidence kept)
+        await con.execute(
+            "INSERT INTO resolution.entity_decisions (observation_id, market_property_id, decision, source, reviewer, supersedes_decision_id) VALUES ($1,$2,'CONFIRMED','HUMAN',$3,$4)",
+            orig["observation_id"], own, reviewer, did)
+        touched.add(own)
+    elif other:
+        st = await con.fetchrow("SELECT status, superseded_by FROM market.properties WHERE market_property_id=$1", other)
+        if not st:
+            print(f"skip decision {did}: property {other} not found")
+            return 0
+        if st["status"] == "SUPERSEDED":  # follow one merge hop (reviewers may hold stale ids after other merges)
+            other = st["superseded_by"]
+        if other == own:
+            await con.execute(
+                "INSERT INTO resolution.entity_decisions (observation_id, market_property_id, decision, source, reviewer, candidate_id, supersedes_decision_id) VALUES ($1,$2,'CONFIRMED','HUMAN',$3,$4,$5)",
+                orig["observation_id"], own, reviewer, orig["candidate_id"], did)
+            touched.add(own)
+        else:
+            # "same property": MERGE — the property with more current observations survives (tie → older id); every current
+            # observation of the absorbed one gets a HUMAN CONFIRMED decision on the survivor; nothing is deleted.
+            counts = {}
+            for mp in (own, other):
+                counts[mp] = await con.fetchval("SELECT count(*) FROM resolution.current_decisions WHERE market_property_id=$1 AND decision NOT IN ('REJECTED','UNLINKED')", mp)
+            survivor = other if counts[other] > counts[own] else own if counts[own] > counts[other] else min(own, other)
+            absorbed = other if survivor == own else own
+            cur = await con.fetch("SELECT decision_id, observation_id, candidate_id FROM resolution.current_decisions WHERE market_property_id=$1 AND decision NOT IN ('REJECTED','UNLINKED') ORDER BY decision_id", absorbed)
+            for d in cur:
+                await con.execute(
+                    "INSERT INTO resolution.entity_decisions (observation_id, market_property_id, decision, source, reviewer, candidate_id, supersedes_decision_id) VALUES ($1,$2,'CONFIRMED','HUMAN',$3,$4,$5)",
+                    d["observation_id"], survivor, reviewer, orig["candidate_id"] if d["decision_id"] == did else None, d["decision_id"])
+                moved += 1
+            if survivor == own:  # the reviewed item stays on `own`; attest it (when `own` is absorbed it moved with the loop above)
+                await con.execute(
+                    "INSERT INTO resolution.entity_decisions (observation_id, market_property_id, decision, source, reviewer, candidate_id, supersedes_decision_id) VALUES ($1,$2,'CONFIRMED','HUMAN',$3,$4,$5)",
+                    orig["observation_id"], own, reviewer, orig["candidate_id"], did)
+            await con.execute("INSERT INTO resolution.property_transitions (kind, source_property_id, target_property_ids, actor, reason) VALUES ('MERGE',$1,$2,$3,$4)",
+                              absorbed, [survivor], reviewer, row.get("reason") or f"csv {a}")
+            await con.execute("UPDATE market.properties SET status='SUPERSEDED', superseded_by=$2 WHERE market_property_id=$1", absorbed, survivor)
+            touched.update((own, other))
+    await con.execute(
+        "INSERT INTO audit.events (actor, role, queue, item_table, item_id, action, before, after, reason, batch_id) VALUES ($1,'reviewer','match','resolution.entity_decisions',$2,$3,$4::jsonb,$5::jsonb,$6,$7)",
+        reviewer, str(did), a, json.dumps({"decision": orig["decision"], "market_property_id": own, "proposed_property_id": proposed}),
+        json.dumps({"decision": "CONFIRMED" if a != "DEFER" else "DEFERRED", "market_property_id": survivor, "merged_observations": moved,
+                    "rejected_property_id": proposed if a == "REJECT" else None}),
+        row.get("reason") or None, batch_id)
     return 1
 
 
@@ -223,7 +332,7 @@ if __name__ == "__main__":
     ap = argparse.ArgumentParser()
     sub = ap.add_subparsers(dest="cmd", required=True)
     e = sub.add_parser("export")
-    e.add_argument("--queue", required=True, choices=sorted(QUEUES | {"match"}))
+    e.add_argument("--queue", required=True, choices=sorted(QUEUES))
     e.add_argument("--limit", type=int, default=100)
     e.add_argument("--out", required=True)
     i = sub.add_parser("import")
@@ -232,13 +341,12 @@ if __name__ == "__main__":
     i.add_argument("--dry-run", action="store_true")
     a = ap.parse_args()
     if a.cmd == "export":
-        if a.queue == "match":
-            sys.exit("match queue needs resolution.* (001F) — not yet applied")
         asyncio.run(export(a.queue, a.limit, Path(a.out)))
     else:
         if not a.reviewer:
             sys.exit("--reviewer (or LENS_REVIEWER) is required")
-        q = "extraction" if re.search(r"review-extraction", Path(a.file).name) else "location" if re.search(r"review-location", Path(a.file).name) else None
+        m = re.search(r"review-(extraction|location|match)", Path(a.file).name)
+        q = m.group(1) if m else None
         if not q:
-            sys.exit("file name must be review-extraction.csv or review-location.csv (export output)")
+            sys.exit("file name must be review-extraction.csv, review-location.csv or review-match.csv (export output)")
         asyncio.run(import_(q, Path(a.file), a.reviewer, a.dry_run))

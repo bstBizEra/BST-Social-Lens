@@ -23,6 +23,7 @@ Endpoints
   GET  /geo/stats        gazetteer + precision distribution + 001D §9.5 evidence (bearer auth)
   GET  /geo/resolve?text= dry-run resolver over a text; no write (bearer auth)
   GET  /quality/stats    DQ grade distribution + validation exceptions over current observations (bearer auth) — 001G
+  POST /admin/quality/recompute?since=  new stats+DQ snapshot rows per ACTIVE property (flag on) — 001G §7
   --- only with LENS_RESOLUTION_ENABLED=1 (001E/001F draft schema; off in production until 001E freezes) ---
   POST /admin/resolve    run clusters → blocking → MATCH_V1 → decisions now (bearer auth)
   GET  /market/properties, /market/properties/{id}, /resolution/stats   L2 market view (bearer auth)
@@ -152,7 +153,7 @@ async def lifespan(app: FastAPI):
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.3", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.4", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -411,6 +412,12 @@ async def market_property(mp: str) -> dict:
 @app.get("/resolution/stats", dependencies=[Depends(require_token), Depends(require_resolution)])
 async def resolution_stats() -> dict:
     return await resolution_store.stats()
+
+
+@app.post("/admin/quality/recompute", dependencies=[Depends(require_token), Depends(require_resolution)])
+async def admin_quality_recompute(since: datetime | None = Query(default=None)) -> dict:
+    """001G §7: new stats + DQ snapshot rows for ACTIVE market properties (all, or those observed after `since`)."""
+    return await resolution_store.recompute_snapshots(since)
 
 
 @app.post("/mcp", dependencies=[Depends(require_token)])
