@@ -70,6 +70,8 @@ Endpoint, auth, validation and `record_to_row` flattening are covered without Po
 
 `lens-api-local.sh {check|setup|start|stop|status|health|auth}` — one-off run under `uvicorn` against a local PostgreSQL on bizera-wsl while Podman networking is unavailable. Reads `.env`; never prints secrets.
 
+`scripts/phase5-smoke.sh` — live smoke for the Phase 5 contract (001B §8): `/raw` insert/duplicate/reject, an `/ingest` record with `payload_hash`, `/provenance/{key}`, coverage, and a `raw_days=0&days=0` purge no-op. `RESTART=1` restarts `bst-lens-api` first; `LENS_URL` overrides the base URL (default `http://127.0.0.1:7710`). Reads the token from `.env`; never prints it.
+
 `install-service.sh` — installs/refreshes the `bst-lens-api` systemd unit (`bst-lens-api.service` + `run-service.sh`) so the API starts with WSL and restarts on failure.
 
 ## MCP adapter — `POST /mcp` (lens-api 0.4.0)
