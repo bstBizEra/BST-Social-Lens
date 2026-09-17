@@ -69,8 +69,10 @@ async def housekeeping_status(db: Any, *, rules_version: str, raw_retention_days
         r_evid = rec["resolved"] / rec["with_hash"] if rec["with_hash"] else None
         recon["R-EVID"] = {"expected": rec["with_hash"], "observed": rec["resolved"], "ratio": round(r_evid, 4) if r_evid is not None else None}
         if rec["with_hash"] - rec["resolved"] > 0:
+            missing_payloads = await con.fetchval("SELECT count(DISTINCT first_payload_hash) FROM records r WHERE first_payload_hash IS NOT NULL AND NOT EXISTS (SELECT 1 FROM raw_captures c WHERE c.payload_hash=r.first_payload_hash)")
+            wm["raw"]["payloads_missing"] = missing_payloads
             findings.append(_finding("RAW_MISSING", "WARN" if r_evid and r_evid > 0.5 else "ERROR", rec["with_hash"] - rec["resolved"],
-                                     "every L1 row resolves to a raw capture (001B)", f"{rec['resolved']}/{rec['with_hash']} resolved",
+                                     "every L1 row resolves to a raw capture (001B)", f"{rec['resolved']}/{rec['with_hash']} records resolved; {missing_payloads} distinct payload bodies missing",
                                      "MARK_RAW_NEEDED → GET /raw/needed; the extension re-sends bodies it still holds on its next sync (0.7.4+)", True))
         if raw["orphan"]:
             findings.append(_finding("RAW_ORPHAN", "INFO", raw["orphan"], "raw captures referenced by a record or event", f"{raw['orphan']} unreferenced", "keep; parser gap corpus", False))

@@ -72,7 +72,7 @@ async def act(db: Any, *, run_id: int, services: Services, max_actions: int, con
             elif atype == "MARK_RAW_NEEDED":
                 async with db.pool.acquire() as con:
                     n = await con.fetchval(
-                        """WITH need AS (SELECT r.first_payload_hash h FROM records r WHERE r.first_payload_hash IS NOT NULL
+                        """WITH need AS (SELECT DISTINCT r.first_payload_hash h FROM records r WHERE r.first_payload_hash IS NOT NULL
                                          AND NOT EXISTS (SELECT 1 FROM raw_captures c WHERE c.payload_hash=r.first_payload_hash) LIMIT $1),
                                 ins AS (INSERT INTO housekeeping.raw_needed (payload_hash, run_id) SELECT h, $2 FROM need ON CONFLICT (payload_hash) DO UPDATE SET run_id=EXCLUDED.run_id, asked_at=now() RETURNING 1)
                            SELECT count(*) FROM ins""", max_actions, run_id)
