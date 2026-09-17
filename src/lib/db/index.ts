@@ -8,6 +8,7 @@
  *  - settings: single row (id = 1)
  */
 import Dexie, { type EntityTable } from 'dexie';
+import { decideSighting } from '../provenance';
 import {
   DEFAULT_SETTINGS,
   type CaptureRun,
@@ -50,6 +51,17 @@ export class SocialLensDB extends Dexie {
       settings: 'id',
       seen: 'url_hash, platform, last_status, synced',
     }).upgrade((tx) => tx.table('raw').toCollection().modify((r: { synced?: number }) => { if (r.synced === undefined) r.synced = 0; }));
+    // v4 (0.7.2): sighting contexts — existing rows get their container as the one known context.
+    this.version(4).stores({
+      records: 'key, platform, record_type, container_id, parent_post_id, created_at, captured_at, synced, match_score',
+      raw: '++id, platform, captured_at, synced, payload_hash',
+      runs: '++id, platform, started_at',
+      settings: 'id',
+      seen: 'url_hash, platform, last_status, synced',
+    }).upgrade((tx) => tx.table('records').toCollection().modify((r: { contexts?: string[]; sightings?: number; container_id?: string }) => {
+      if (!r.contexts) r.contexts = r.container_id ? [`container:${r.container_id}`] : [];
+      if (!r.sightings) r.sightings = 1;
+    }));
   }
 }
 
@@ -68,34 +80,55 @@ export async function setSettings(patch: Partial<Settings>): Promise<Settings> {
 }
 
 /** Upsert records; existing rows keep their `synced` flag unless content changed. */
-export async function upsertRecords(records: SocialRecord[]): Promise<number> {
-  if (records.length === 0) return 0;
-  let written = 0;
+export interface UpsertResult {
+  written: number;
+  repeats: number;
+  newContexts: number;
+  changed: number;
+}
+
+/**
+ * Store records with sighting semantics (0.7.2): a record already stored is touched only when it is seen from a
+ * NEW context or its content changed; a same-context, same-content re-sighting is a repeat and is skipped (not
+ * re-queued for sync). `ctx` is the sighting context of this capture (see `sightingContext`).
+ */
+export async function upsertRecords(records: SocialRecord[], ctx = 'page:unknown'): Promise<UpsertResult> {
+  const res: UpsertResult = { written: 0, repeats: 0, newContexts: 0, changed: 0 };
+  if (records.length === 0) return res;
   await db.transaction('rw', db.records, async () => {
     for (const rec of records) {
       const existing = await db.records.get(rec.key);
-      if (!existing) {
-        await db.records.add(rec);
-        written++;
+      const decision = decideSighting(existing, rec, ctx);
+      if (decision === 'repeat') {
+        res.repeats++;
         continue;
       }
-      // Merge: newer engagement numbers win, keep earliest created_at.
+      if (!existing) {
+        await db.records.add({ ...rec, contexts: [ctx], sightings: 1, sighting_context: ctx });
+        res.written++;
+        continue;
+      }
+      // Merge: newer engagement numbers win, keep earliest created_at, union keywords and contexts.
       const merged: SocialRecord = {
         ...existing,
         ...rec,
         created_at: existing.created_at ?? rec.created_at,
         media: rec.media.length ? rec.media : existing.media,
         hashtags: rec.hashtags.length ? rec.hashtags : existing.hashtags,
-        // Union matched keywords across sightings.
         matched_keywords: Array.from(new Set([...(existing.matched_keywords ?? []), ...(rec.matched_keywords ?? [])])),
         match_score: Math.max(existing.match_score ?? 0, rec.match_score ?? 0),
+        contexts: Array.from(new Set([...(existing.contexts ?? []), ctx])),
+        sightings: (existing.sightings ?? 1) + 1,
+        sighting_context: ctx,
         synced: 0,
       };
       await db.records.put(merged);
-      written++;
+      res.written++;
+      if (decision === 'new_context') res.newContexts++;
+      else res.changed++;
     }
   });
-  return written;
+  return res;
 }
 
 /** Returns the SeenLink if the normalized url_hash is already known. */

@@ -81,8 +81,8 @@ _COLS = [
 ]
 
 _CAPTURE_EVENT = """
-INSERT INTO capture_events (record_key, payload_hash, captured_at, page_url, parser_version, ingest_source)
-VALUES ($1,$2,$3,$4,$5,$6)
+INSERT INTO capture_events (record_key, payload_hash, captured_at, page_url, parser_version, ingest_source, context)
+VALUES ($1,$2,$3,$4,$5,$6,$7)
 ON CONFLICT (record_key, payload_hash, captured_at) DO NOTHING
 """
 
@@ -150,7 +150,7 @@ class Database:
                     # Provenance: one capture event per sighting (I1), even when the row already existed.
                     await con.execute(
                         _CAPTURE_EVENT, row["key"], row.get("first_payload_hash"), row.get("captured_at_event") or row.get("captured_at"),
-                        row.get("page_url"), row.get("parser_version"), row.get("ingest_source"),
+                        row.get("page_url"), row.get("parser_version"), row.get("ingest_source"), row.get("context"),
                     )
         return (inserted, len(rows) - inserted)
 
@@ -188,7 +188,7 @@ class Database:
             if not rec:
                 return None
             events = await con.fetch(
-                """SELECT e.captured_at, e.payload_hash, e.page_url, e.parser_version, e.ingest_source,
+                """SELECT e.captured_at, e.payload_hash, e.page_url, e.context, e.parser_version, e.ingest_source,
                           (r.payload_hash IS NOT NULL) AS raw_present, (r.body IS NOT NULL) AS body_present, r.body_bytes, r.truncated
                    FROM capture_events e LEFT JOIN raw_captures r ON r.payload_hash = e.payload_hash
                    WHERE e.record_key = $1 ORDER BY e.captured_at""", key)
@@ -203,9 +203,11 @@ class Database:
                 "SELECT count(*) FROM records r WHERE r.first_payload_hash IS NOT NULL AND EXISTS (SELECT 1 FROM raw_captures c WHERE c.payload_hash = r.first_payload_hash)")
             raw_total = await con.fetchval("SELECT count(*) FROM raw_captures")
             raw_with_body = await con.fetchval("SELECT count(*) FROM raw_captures WHERE body IS NOT NULL")
+            multi_ctx = await con.fetchval("SELECT count(*) FROM (SELECT record_key FROM capture_events WHERE context IS NOT NULL GROUP BY 1 HAVING count(DISTINCT context) > 1) x")
         return {"records": total, "records_with_payload_hash": with_hash, "records_resolved_to_raw": resolved,
                 "coverage": round(resolved / total, 4) if total else None,
-                "raw_captures": raw_total, "raw_with_body": raw_with_body}
+                "raw_captures": raw_total, "raw_with_body": raw_with_body,
+                "records_seen_in_multiple_contexts": multi_ctx}
 
     async def record_ingest_run(
         self, source: str | None, ext_version: str | None, sent: int,

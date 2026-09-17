@@ -16,8 +16,11 @@ import { toCsv, toNdjson } from '../lib/export';
 import { matchFields } from '../lib/keywords';
 import { moduleForResponse, type ParseContext } from '../lib/modules';
 import { normalizeUrl, urlHash } from '../lib/url';
-import { contentHashInput, planRawBatch, truncateUtf8 } from '../lib/provenance';
-import type { AutoProgress, Platform, RuntimeMessage, SocialRecord, Stats } from '../lib/types';
+import { contentHashInput, normalizeTargetUrl, planRawBatch, sightingContext, truncateUtf8 } from '../lib/provenance';
+import type { AutoProgress, CaptureTarget, Platform, RuntimeMessage, SocialRecord, Stats } from '../lib/types';
+
+/** Re-sightings skipped since the service worker started (same post, same context, same content). */
+let repeatsSkipped = 0;
 
 const SYNC_ALARM = 'bst-social-lens:sync';
 const PURGE_ALARM = 'bst-social-lens:purge';
@@ -107,8 +110,19 @@ async function handleCapture(payload: Extract<RuntimeMessage, { type: 'capture' 
   // L0 identity: hash of the body as stored (after truncation) — the server verifies the same hash.
   const { text: storedBody, truncated } = truncateUtf8(payload.body, settings.maxRawBytes);
   const payload_hash = await sha256(storedBody);
+
+  // Provenance on every record: which payload it came from, and a content hash.
+  for (const r of toStore) {
+    r.payload_hash = payload_hash;
+    r.content_hash = await sha256(contentHashInput(r));
+  }
+  // Sighting context (0.7.2): the group/container when known, else the page path. A post already stored from this
+  // context with unchanged content is a repeat: not re-stored, not re-sent, and its raw body is not kept either.
+  const ctx = sightingContext(payload.page_url, toStore.find((r) => r.container_id)?.container_id);
+  const stored = await upsertRecords(toStore, ctx);
+  repeatsSkipped += stored.repeats;
   let raw_ref: number | undefined;
-  if (settings.keepRawPayloads) {
+  if (settings.keepRawPayloads && (stored.written > 0 || (parsed === 0 && !!parse_error))) {
     raw_ref = await db.raw.add({
       platform,
       url: payload.url,
@@ -124,14 +138,13 @@ async function handleCapture(payload: Extract<RuntimeMessage, { type: 'capture' 
       truncated,
       synced: 0,
     });
+    if (raw_ref !== undefined) {
+      const keys = toStore.map((r) => r.key);
+      await db.records.where('key').anyOf(keys).modify((r: SocialRecord) => { if (r.payload_hash === payload_hash) r.raw_ref = raw_ref; });
+    }
   }
-
-  // Provenance on every record: which payload it came from, and a content hash.
-  for (const r of toStore) {
-    r.payload_hash = payload_hash;
-    r.content_hash = await sha256(contentHashInput(r));
-  }
-  const stored = await upsertRecords(toStore.map((r) => ({ ...r, raw_ref })));
+  // Capture targets: learn the container id for the target whose link is the current page.
+  await learnTarget(settings, payload.page_url, toStore.find((r) => r.container_id)?.container_id, captured_at);
 
   // Record permalinks in the seen frontier so they aren't re-opened later.
   for (const r of toStore) {
@@ -151,7 +164,7 @@ async function handleCapture(payload: Extract<RuntimeMessage, { type: 'capture' 
   }
 
   await updateBadge();
-  return { stored, parsed, platform, parse_error };
+  return { stored: stored.written, repeats: stored.repeats, parsed, platform, parse_error };
 }
 
 async function stats(): Promise<Stats> {
@@ -175,10 +188,33 @@ async function stats(): Promise<Stats> {
     raw,
     unsynced,
     rawUnsynced,
+    repeatsSkipped,
+    perTarget: await perTargetCounts(settings.captureTargets ?? []),
     captureEnabled: settings.captureEnabled,
     storeMode: settings.storeMode,
     lastCapture: last?.captured_at,
   };
+}
+
+async function perTargetCounts(targets: CaptureTarget[]): Promise<Record<string, number>> {
+  const out: Record<string, number> = {};
+  for (const t of targets) out[t.url] = t.container_id ? await db.records.where('container_id').equals(t.container_id).count() : 0;
+  return out;
+}
+
+async function learnTarget(settings: Awaited<ReturnType<typeof getSettings>>, page_url: string, container_id: string | undefined, at: string) {
+  const targets = settings.captureTargets ?? [];
+  if (!targets.length) return;
+  const page = normalizeTargetUrl(page_url);
+  if (!page) return;
+  let changed = false;
+  for (const t of targets) {
+    if (page === t.url || page.startsWith(t.url + '/')) {
+      if (container_id && t.container_id !== container_id) { t.container_id = container_id; changed = true; }
+      if (t.last_captured_at !== at) { t.last_captured_at = at; changed = true; }
+    }
+  }
+  if (changed) await setSettings({ captureTargets: targets });
 }
 
 async function updateBadge() {
@@ -326,6 +362,22 @@ export default defineBackground(() => {
         }
         case 'sync':
           return syncToIngest();
+        case 'targets': {
+          const s = await getSettings();
+          const url = normalizeTargetUrl(msg.url);
+          if (!url) return { ok: false, error: 'not a Facebook/TikTok link' };
+          let targets = s.captureTargets ?? [];
+          if (msg.op === 'add' && !targets.some((t) => t.url === url)) targets = [...targets, { url, label: msg.label, added_at: new Date().toISOString() }];
+          if (msg.op === 'remove') targets = targets.filter((t) => t.url !== url);
+          return { ok: true, settings: await setSettings({ captureTargets: targets }) };
+        }
+        case 'openTarget': {
+          // Opened by an operator click in the side panel — the extension never navigates on its own (ADR-0004).
+          const url = normalizeTargetUrl(msg.url);
+          if (!url) return { ok: false };
+          const tab = await browser.tabs.create({ url, active: true });
+          return { ok: true, tabId: tab.id };
+        }
         case 'hostPermission': {
           // The ingest origin is an optional host permission: without it the background fetch is a plain
           // cross-origin request (CORS preflight → "Failed to fetch"). Request must come from a user gesture (side panel click).

@@ -208,6 +208,14 @@ Matching is Lao-aware (NFC, substring), so `ຂາຍດິນ` matches both `�
 
 ---
 
+## 5a. Capture targets (0.7.2)
+
+Side panel → **Capture targets**: paste each group/page link once (`https://www.facebook.com/groups/<id-or-slug>`).
+**Open** opens it in a new tab (your click), then scroll or start auto-scroll there; the target learns its group id
+from the first capture and shows its record count. A post already captured from that group is a *repeat* (badge
+"Repeats skipped") and is neither stored nor synced again; the same post seen in another group is a new sighting
+and is synced with its context.
+
 ## 6. Capture — manual and autonomous
 
 - **Manual**: open a group / hashtag / video and scroll; the badge shows records · payloads.

@@ -218,11 +218,12 @@ def test_raw_ingest_verifies_hash_and_dedupes():
 def test_ingest_carries_provenance_and_provenance_endpoint():
     c, fake = make_client()
     H = {"authorization": "Bearer test-token"}
-    rec = {**REC, "payload_hash": "a" * 64, "content_hash": "b" * 64}
+    rec = {**REC, "payload_hash": "a" * 64, "content_hash": "b" * 64, "sighting_context": "container:1536122683112549", "sightings": 2}
     r = c.post("/ingest", json={"records": [rec]}, headers=H)
     assert r.status_code == 200
     row = fake.store["facebook:123"]
     assert row["first_payload_hash"] == "a" * 64 and row["last_payload_hash"] == "a" * 64 and row["content_hash"] == "b" * 64
+    assert row["context"] == "container:1536122683112549"  # 0.7.2 sighting context → capture_events.context
     assert c.get("/provenance/facebook:123", headers=H).json()["events"][0]["payload_hash"] == "a" * 64
     assert c.get("/provenance/nope", headers=H).status_code == 404
     assert c.get("/provenance", headers=H).json()["coverage"] == 1.0

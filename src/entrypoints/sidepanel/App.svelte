@@ -84,6 +84,22 @@
       return r.granted ? `Access granted for ${r.origin}` : (r.error ?? 'Access not granted');
     });
 
+  // Capture targets (0.7.2): links the operator works through. Open = a click → new tab; the extension never navigates by itself.
+  let targetInput = $state('');
+  const addTarget = () =>
+    run('Add target', () => send<{ ok: boolean; error?: string; settings?: Settings }>({ type: 'targets', op: 'add', url: targetInput }), (r) => {
+      if (r.settings) settings = r.settings;
+      if (r.ok) targetInput = '';
+      return r.ok ? 'Target added' : (r.error ?? 'Not added');
+    });
+  const removeTarget = (url: string) =>
+    run('Remove target', () => send<{ ok: boolean; settings?: Settings }>({ type: 'targets', op: 'remove', url }), (r) => {
+      if (r.settings) settings = r.settings;
+      return 'Target removed';
+    });
+  const openTarget = (url: string) => run('Open', () => send<{ ok: boolean }>({ type: 'openTarget', url }), () => 'Opened — start capture / auto-scroll in that tab');
+  const shortUrl = (u: string) => u.replace(/^https:\/\/www\./, '');
+
   const clear = (what: 'records' | 'raw' | 'seen' | 'all') => {
     if (!confirm(`Clear ${what}? This cannot be undone.`)) return;
     return run(`Clear ${what}`, () => send<{ ok: boolean }>({ type: 'clear', what }), () => `Cleared ${what}`);
@@ -131,6 +147,7 @@
     <div class="stat"><b>{stats?.records.facebook ?? 0}</b><span>Facebook</span></div>
     <div class="stat"><b>{stats?.records.tiktok ?? 0}</b><span>TikTok</span></div>
     <div class="stat"><b>{stats?.matched ?? 0}</b><span>Matched</span></div>
+    <div class="stat" title="Same post, same group/page, same content — not stored or sent again"><b>{stats?.repeatsSkipped ?? 0}</b><span>Repeats skipped</span></div>
   </div>
   <div class="stats">
     <div class="stat"><b>{stats?.comments ?? 0}</b><span>Comments</span></div>
@@ -212,6 +229,20 @@
 </section>
 
 <section class="card">
+  <h2>Capture targets</h2>
+  {#if settings}
+    <div class="muted">Group / page links to work through. <b>Open</b> opens the link in a new tab (your click — the extension never navigates on its own); then scroll or start auto-scroll there. A post is stored once per group/page; seeing it again in the same group with the same content is a repeat, seeing it in another group is a new sighting.</div>
+    <div class="row"><input type="url" placeholder="https://www.facebook.com/groups/…" bind:value={targetInput} /> <button disabled={busy || !targetInput} onclick={addTarget}>Add</button></div>
+    {#each settings.captureTargets ?? [] as t (t.url)}
+      <div class="row target">
+        <span class="grow" title={t.url}>{shortUrl(t.url)}</span>
+        <span class="muted">{stats?.perTarget?.[t.url] ?? 0} records{t.last_captured_at ? ` · last ${new Date(t.last_captured_at).toLocaleDateString()}` : ''}</span>
+        <button disabled={busy} onclick={() => openTarget(t.url)}>Open</button>
+        <button disabled={busy} onclick={() => removeTarget(t.url)} title="Remove">✕</button>
+      </div>
+    {/each}
+  {/if}
+
   <h2>BST Ingest API</h2>
   {#if settings}
     <label>Ingest URL <input type="url" value={settings.ingestUrl} onchange={(e) => { patch({ ingestUrl: e.currentTarget.value }).then(checkHost); }} placeholder="http://localhost:7710/ingest" /></label>
