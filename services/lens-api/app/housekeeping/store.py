@@ -52,7 +52,7 @@ async def run_housekeeping(db: Any, *, trigger: str, dry_run: bool = False, serv
                             """INSERT INTO housekeeping.findings (finding_type, severity, entity_type, entity_id, count, expected_state, observed_state, recommended_action, auto_action_allowed, first_seen_run_id, last_seen_run_id)
                                VALUES ($1,$2,'aggregate',NULL,$3,$4,$5,$6,$7,$8,$8)
                                ON CONFLICT (finding_type, entity_type, COALESCE(entity_id, '')) WHERE status IN ('OPEN','ACTIONED','REVIEW')
-                               DO UPDATE SET severity=EXCLUDED.severity, count=EXCLUDED.count, observed_state=EXCLUDED.observed_state, last_seen_run_id=EXCLUDED.last_seen_run_id""",
+                               DO UPDATE SET severity=EXCLUDED.severity, count=EXCLUDED.count, observed_state=EXCLUDED.observed_state, recommended_action=EXCLUDED.recommended_action, auto_action_allowed=EXCLUDED.auto_action_allowed, last_seen_run_id=EXCLUDED.last_seen_run_id""",
                             f["finding_type"], f["severity"], f["count"], f["expected_state"], f["observed_state"], f["recommended_action"], f["auto_action_allowed"], run_id)
                     # findings no longer detected → RESOLVED (superseding state, row kept)
                     await con.execute(
