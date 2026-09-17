@@ -1,6 +1,6 @@
 {
   "name": "bst-social-lens",
-  "version": "0.7.3",
+  "version": "0.7.4",
   "description": "BST Social Lens — Chrome/Edge (MV3) extension that captures Facebook group/post and TikTok signals from your own browser session into a local store and the BST ingest API.",
   "private": true,
   "type": "module",
