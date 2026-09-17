@@ -56,3 +56,24 @@ describe('matchFields', () => {
     expect(matchFields(['ຂາຍ', 'ສະບາຍດີ'], set).matched).toBe(false);
   });
 });
+
+describe('required terms (0.7.3): a post must carry an intent term', () => {
+  it('drops a post that only names a village/district/price, keeps one with ຂາຍ/ເຊົ່າ/ຊື້', () => {
+    const set = DEFAULT_KEYWORD_SET;
+    expect(matchKeywords('ບ້ານດົງໂດກ ເມືອງໄຊທານີ ລາຄາດີ', set)).toMatchObject({ matched: false, missing_required: true });
+    expect(matchKeywords('ຂາຍດິນ ບ້ານດົງໂດກ ລາຄາ 2.5 ຕື້', set).matched).toBe(true);
+    expect(matchKeywords('ໃຫ້ເຊົ່າເຮືອນ ເມືອງຈັນທະບູລີ', set).matched).toBe(true);
+    expect(matchKeywords('ຕ້ອງການຊື້ດິນ ໃກ້ ມຊ', set).matched).toBe(true);
+    // passes the required gate ("sale") but the default includes are Lao-only → still not stored; no missing_required flag
+    expect(matchKeywords('Land for sale Vientiane', set)).toMatchObject({ matched: false });
+    expect(matchKeywords('Land for sale Vientiane', set).missing_required).toBeUndefined();
+  });
+  it('an empty require list restores the old behaviour', () => {
+    const set: KeywordSet = { ...DEFAULT_KEYWORD_SET, require: [] };
+    expect(matchKeywords('ບ້ານດົງໂດກ ເມືອງໄຊທານີ', set).matched).toBe(true);
+  });
+  it('required terms are checked before includes, exclude still wins', () => {
+    const set: KeywordSet = { ...DEFAULT_KEYWORD_SET, exclude: ['ລົດ'] };
+    expect(matchKeywords('ຂາຍລົດ ລາຄາຖືກ', set).matched).toBe(false);
+  });
+});

@@ -108,10 +108,12 @@
   // Keyword set edited as a comma/space/newline-separated string.
   let includeText = $state('');
   let excludeText = $state('');
+  let requireText = $state('');
   $effect(() => {
     if (settings) {
       includeText = settings.keywordSet.include.join(', ');
       excludeText = (settings.keywordSet.exclude ?? []).join(', ');
+      requireText = (settings.keywordSet.require ?? []).join(', ');
     }
   });
   const splitTerms = (s: string) => s.split(/[,\n]/).map((t) => t.trim()).filter(Boolean);
@@ -122,6 +124,7 @@
         ...settings.keywordSet,
         include: splitTerms(includeText),
         exclude: splitTerms(excludeText),
+        require: splitTerms(requireText),
       },
     });
   }
@@ -148,6 +151,7 @@
     <div class="stat"><b>{stats?.records.tiktok ?? 0}</b><span>TikTok</span></div>
     <div class="stat"><b>{stats?.matched ?? 0}</b><span>Matched</span></div>
     <div class="stat" title="Same post, same group/page, same content — not stored or sent again"><b>{stats?.repeatsSkipped ?? 0}</b><span>Repeats skipped</span></div>
+    <div class="stat" title="Posts without any required term (sell / rent / wanted)"><b>{stats?.requiredSkipped ?? 0}</b><span>No intent term</span></div>
   </div>
   <div class="stats">
     <div class="stat"><b>{stats?.comments ?? 0}</b><span>Comments</span></div>
@@ -200,6 +204,9 @@
     <label>Include terms (comma or newline separated)
       <input type="text" value={includeText} oninput={(e) => (includeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="ດິນ, ຂາຍ, ເຊົ່າ, ລາຄາ, ບ້ານ, ເມືອງ, ແຂວງ" />
     </label>
+    <label>Required terms — skip the post unless it contains at least one
+      <input type="text" value={requireText} oninput={(e) => (requireText = e.currentTarget.value)} onblur={saveKeywords} placeholder="ຂາຍ, ເຊົ່າ, ຊື້, ຕ້ອງການ … (empty = no requirement)" />
+    </label>
     <label>Exclude terms
       <input type="text" value={excludeText} oninput={(e) => (excludeText = e.currentTarget.value)} onblur={saveKeywords} placeholder="(optional)" />
     </label>
@@ -210,7 +217,7 @@
       <input type="checkbox" checked={settings.storeMode === 'matched'} onchange={(e) => patch({ storeMode: e.currentTarget.checked ? 'matched' : 'all' })} />
     </label>
     <label class="toggle">Capture comments <input type="checkbox" checked={settings.captureComments} onchange={(e) => patch({ captureComments: e.currentTarget.checked })} /></label>
-    <div class="muted">Matched-only keeps just keyword hits (posts + comments). A matching comment also keeps its parent post. Lao matching is substring-based (NFC-normalized), so ຂາຍດິນ matches both ຂາຍ and ດິນ.</div>
+    <div class="muted">Matched-only keeps just keyword hits (posts + comments). A post must carry one of the <b>required</b> terms (sell / rent / wanted by default) — a village or district name alone is not a listing. A matching comment also keeps its parent post. Lao matching is substring-based (NFC-normalized), so ຂາຍດິນ matches both ຂາຍ and ດິນ.</div>
   {/if}
 </section>
 

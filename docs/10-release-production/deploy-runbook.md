@@ -208,6 +208,13 @@ Matching is Lao-aware (NFC, substring), so `ຂາຍດິນ` matches both `�
 
 ---
 
+### Required terms (0.7.3)
+
+**Keywords & filtering → Required terms**: a post is stored only if it contains at least one of these (default: the
+sell / rent / wanted intent terms). Include terms still decide the match score; required terms decide whether the post
+is a listing at all. Clear the field to return to include-only matching. The "No intent term" tile shows how many posts
+were dropped by this gate since the extension started.
+
 ## 5a. Capture targets (0.7.2)
 
 Side panel → **Capture targets**: paste each group/page link once (`https://www.facebook.com/groups/<id-or-slug>`).

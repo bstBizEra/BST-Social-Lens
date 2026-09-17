@@ -21,6 +21,8 @@ import type { AutoProgress, CaptureTarget, Platform, RuntimeMessage, SocialRecor
 
 /** Re-sightings skipped since the service worker started (same post, same context, same content). */
 let repeatsSkipped = 0;
+/** Records dropped since the service worker started because none of the required terms was present (0.7.3). */
+let requiredSkipped = 0;
 
 const SYNC_ALARM = 'bst-social-lens:sync';
 const PURGE_ALARM = 'bst-social-lens:purge';
@@ -77,6 +79,7 @@ async function handleCapture(payload: Extract<RuntimeMessage, { type: 'capture' 
   const commentMatchByParent = new Map<string, string[]>();
   for (const r of records) {
     const m = matchFields([r.text, r.author_name], set);
+    if (m.missing_required) requiredSkipped++;
     r.matched_keywords = m.hits;
     r.match_score = m.score;
     if (m.matched) {
@@ -189,6 +192,7 @@ async function stats(): Promise<Stats> {
     unsynced,
     rawUnsynced,
     repeatsSkipped,
+    requiredSkipped,
     perTarget: await perTargetCounts(settings.captureTargets ?? []),
     captureEnabled: settings.captureEnabled,
     storeMode: settings.storeMode,

@@ -69,7 +69,10 @@ export const db = new SocialLensDB();
 
 export async function getSettings(): Promise<Settings> {
   const row = await db.settings.get(1);
-  return { ...DEFAULT_SETTINGS, ...(row ?? {}) };
+  const merged: Settings = { ...DEFAULT_SETTINGS, ...(row ?? {}) };
+  // 0.7.3: a keyword set saved before `require` existed gets the default required terms (the operator can clear them).
+  if (row && row.keywordSet && row.keywordSet.require === undefined) merged.keywordSet = { ...row.keywordSet, require: [...DEFAULT_SETTINGS.keywordSet.require!] };
+  return merged;
 }
 
 export async function setSettings(patch: Partial<Settings>): Promise<Settings> {
