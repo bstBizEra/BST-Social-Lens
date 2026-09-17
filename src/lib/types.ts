@@ -243,6 +243,8 @@ export interface Stats {
   rawUnsynced: number;
   /** Re-sightings skipped since the service worker started (same post, same context, same content). */
   repeatsSkipped: number;
+  /** Records dropped since the service worker started for lacking a required term (0.7.3). */
+  requiredSkipped: number;
   /** Records per capture target (by learned container id). */
   perTarget: Record<string, number>;
   lastCapture?: string;

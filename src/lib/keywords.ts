@@ -17,14 +17,24 @@ export interface KeywordSet {
   include: string[];
   /** If any exclude term is present, the record is rejected regardless of hits. */
   exclude?: string[];
+  /**
+   * Required terms (0.7.3): at least one must be present or the record is skipped, whatever else it matched.
+   * Empty/undefined = no requirement. Default = the intent terms (sell / rent / wanted), so a post that merely
+   * mentions a village ("ບ້ານ…") or a district ("ເມືອງ…") no longer counts as a property listing.
+   */
+  require?: string[];
   min_hits?: number;
   enabled?: boolean;
 }
+
+/** Intent terms every stored post must carry (sell / rent / wanted) — mirrors KEYWORD_GROUPS.intent_*. */
+export const DEFAULT_REQUIRED_TERMS: readonly string[] = ['ຂາຍ', 'ເຊົ່າ', 'ຊື້', 'ຕ້ອງການ', 'ຊອກ', 'ຮັບຊື້', 'ขาย', 'เช่า', 'ต้องการ', 'sale', 'sell', 'rent', 'lease', 'wanted', 'looking for'];
 
 export const DEFAULT_KEYWORD_SET: KeywordSet = {
   name: 'real-estate-lao',
   include: ['ດິນ', 'ຂາຍ', 'ເຊົ່າ', 'ລາຄາ', 'ບ້ານ', 'ເມືອງ', 'ແຂວງ'],
   exclude: [],
+  require: [...DEFAULT_REQUIRED_TERMS],
   min_hits: 1,
   enabled: true,
 };
@@ -32,6 +42,8 @@ export const DEFAULT_KEYWORD_SET: KeywordSet = {
 const norm = (s: string): string => s.normalize('NFC').toLowerCase();
 
 export interface KeywordMatch {
+  /** 0.7.3: true when the set has required terms and none was present (the reason for a non-match). */
+  missing_required?: boolean;
   matched: boolean;
   hits: string[]; // distinct include terms found, in the set's order
   score: number;
@@ -47,8 +59,12 @@ export function matchKeywords(text: string | undefined | null, set: KeywordSet):
   if (set.exclude && set.exclude.some((t) => t && haystack.includes(norm(t)))) {
     return { matched: false, hits: [], score: 0 };
   }
-  if (!set.include.length) return { matched: haystack.length > 0, hits: [], score: 0 };
   if (!haystack) return { matched: false, hits: [], score: 0 };
+  const required = (set.require ?? []).filter(Boolean);
+  if (required.length && !required.some((t) => haystack.includes(norm(t)))) {
+    return { matched: false, hits: [], score: 0, missing_required: true };
+  }
+  if (!set.include.length) return { matched: true, hits: [], score: 0 };
   const hits: string[] = [];
   for (const term of set.include) {
     if (term && haystack.includes(norm(term))) hits.push(term);
