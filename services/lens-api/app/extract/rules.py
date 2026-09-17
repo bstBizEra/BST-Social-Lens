@@ -146,7 +146,7 @@ def _price_observations(claims: list[Claim], tx: Claim | None, fx: FxLookup | No
     out: list[PriceObservation] = []
     area = next((Decimal(str(c.normalised["area_sqm"])) for c in claims if c.field == "AREA" and c.confidence >= 0.6), None)
     for i, c in enumerate(claims):
-        if c.field != "PRICE":
+        if c.field != "PRICE" or c.normalised.get("price_withheld"):
             continue
         amount = Decimal(str(c.normalised["amount_original"]))
         cur = c.normalised["currency_original"]

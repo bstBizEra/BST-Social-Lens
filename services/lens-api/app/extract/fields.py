@@ -13,12 +13,12 @@ from decimal import Decimal
 from .keywords import KEYWORD_GROUPS, norm
 from .models import Claim, Span
 from .numbers import (
-    AREA_UNITS, CURRENCY_TERMS, MAGNITUDES, NUMBER_RE, ascii_digits, cur_pattern, mag_pattern, parse_number, span16,
+    AREA_UNITS, CURRENCY_TERMS, MAGNITUDES, NUMBER_RE, WITHHELD_RE, ascii_digits, cur_pattern, mag_pattern, parse_number, span16,
     unit_pattern,
 )
 
 METHOD = "RULE_V1"
-RULES_VERSION = "1.0.0"
+RULES_VERSION = "1.0.1"
 
 LAO_BBOX = (13.9, 22.6, 100.0, 107.8)  # lat_min, lat_max, lng_min, lng_max
 LAO_LETTERS = r"຀-໿"
@@ -39,6 +39,8 @@ _PRICE_RE = re.compile(
     re.I,
 )
 _DIM_RE = re.compile(rf"{NUMBER_RE.replace('num', 'a')}\s*(?:x|×|X|\*|ຄູນ)\s*{NUMBER_RE.replace('num', 'b')}")
+# Withheld price: obfuscated digits followed by a currency (or preceded by a price term) — evidence that a price exists.
+_WITHHELD_RE = re.compile(rf"(?<![\d,.xX×+*]){WITHHELD_RE}\s*(?P<cur_post>{cur_pattern()})?", re.I)
 _AREA_UNIT_RE = re.compile(rf"{NUMBER_RE}\s*(?P<unit>{unit_pattern()})(?![a-z])", re.I)
 _AREA_LEAD_RE = re.compile(r"ເນື້ອທີ່|ພື້ນທີ່|เนื้อที่|area|size", re.I)
 
@@ -95,6 +97,8 @@ def extract_price(text: str) -> list[Claim]:
         num_s, num_e = m.span("num")
         if any(a <= num_s < b for a, b in dims | phones):
             continue
+        if num_s > 0 and shadow[num_s - 1] in "xX×+*":
+            continue  # tail of an obfuscated amount ("1,xxx,000฿") — handled by the withheld pass (1.0.1)
         mag = m.group("mag")
         cur = m.group("cur_post") or m.group("cur_pre")
         mag_l = mag.lower() if mag else None
@@ -107,6 +111,8 @@ def extract_price(text: str) -> list[Claim]:
         amount = parse_number(m.group("num"))
         if amount is None:
             continue
+        if not mag and not cur and amount < 10:
+            continue  # "ລາຄາ 5": a bare single digit is not a price observation (1.0.1)
         if mag:
             amount *= MAGNITUDES[mag_l]  # type: ignore[index]
         currency = CURRENCY_TERMS.get(norm(cur), "UNKNOWN") if cur else "UNKNOWN"
@@ -132,6 +138,18 @@ def extract_price(text: str) -> list[Claim]:
         start = m.start("cur_pre") if m.group("cur_pre") else num_s
         c = _claim(text, "PRICE", start, end, conf, amount_original=amount, currency_original=currency, price_basis=basis)
         c.signals = signals
+        out.append(c)
+    # Withheld prices ("1,xxx,000฿", "+,+++$"): a PRICE claim with amount 0 and the `price_withheld` flag — never a
+    # price observation (rules.py skips it), but evidence that the advertiser has a price. (1.0.1)
+    for m in _WITHHELD_RE.finditer(shadow):
+        cur = m.group("cur_post")
+        near_price_term = bool(_PRICE_TERM_RE.search(shadow, max(0, m.start() - 14), m.start()))
+        if not cur and not near_price_term:
+            continue
+        currency = CURRENCY_TERMS.get(norm(cur), "UNKNOWN") if cur else "UNKNOWN"
+        end = m.end("cur_post") if cur else m.end("withheld")
+        c = _claim(text, "PRICE", m.start(), end, 0.60, amount_original=Decimal(0), currency_original=currency, price_basis="UNKNOWN", price_withheld=True)
+        c.signals = ["price_withheld"]
         out.append(c)
     return _dedupe_conflicts(out, "amount_original")
 
