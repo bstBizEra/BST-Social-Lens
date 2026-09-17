@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import os
+import sys
 from datetime import datetime, timezone
 from decimal import Decimal
 
@@ -24,6 +25,7 @@ POSTS = [
     ("facebook:x1", "ຂາຍດິນ 20x30 ບ້ານນາສ້າງໄຜ່ ເມືອງໄຊທານີ ລາຄາ 2.5 ຕື້ ໂທ 020 5512 3456"),
     ("facebook:x2", "Land for sale 600 sqm $45,000 owner direct"),
     ("facebook:x3", "ສະບາຍດີ ມື້ນີ້ອາກາດດີ"),
+    ("facebook:x4", "ໃຫ້ເຊົ່າເຮືອນ ບ້ານໂພນຕ້ອງ ລາຄາ 350"),   # ambiguous village + bare price → review queues
 ]
 
 
@@ -37,7 +39,7 @@ def env():
         main.db._dsn = DSN
         await main.db.connect()
         async with main.db.pool.acquire() as con:
-            await con.execute("DELETE FROM geo.resolved_locations; DELETE FROM extract.contact_sightings; DELETE FROM extract.price_observations; DELETE FROM extract.claims; "
+            await con.execute("DELETE FROM audit.events; DELETE FROM geo.resolved_locations; DELETE FROM extract.contact_sightings; DELETE FROM extract.price_observations; DELETE FROM extract.claims; "
                               "DELETE FROM extract.observations; DELETE FROM extract.runs; DELETE FROM extract.contact_points; DELETE FROM extract.fx_rates;")
             await con.execute("DELETE FROM records WHERE key LIKE 'facebook:x%'")
             for key, text in POSTS:
@@ -59,11 +61,11 @@ def env():
 def test_run_extracts_and_is_idempotent(env):
     main, run = env
     r1 = main.loop.run_until_complete(run(main.extract_store, trigger="test", pgcrypto=main.db.pgcrypto, contact_salt="s"))
-    assert r1["records_in"] == 3 and r1["observations_out"] == 3
+    assert r1["records_in"] == 4 and r1["observations_out"] == 4
     r2 = main.loop.run_until_complete(run(main.extract_store, trigger="test", pgcrypto=main.db.pgcrypto, contact_salt="s"))
     assert r2["records_in"] == 0  # nothing new: same content_hash + method_version
     r3 = main.loop.run_until_complete(run(main.extract_store, trigger="test", force=True, pgcrypto=main.db.pgcrypto, contact_salt="s"))
-    assert r3["observations_out"] == 3  # force appends new observations, old ones remain
+    assert r3["observations_out"] == 4  # force appends new observations, old ones remain
 
     async def counts():
         async with main.db.pool.acquire() as con:
@@ -72,7 +74,7 @@ def test_run_extracts_and_is_idempotent(env):
                     await con.fetchval("SELECT count(*) FROM extract.runs"))
 
     total, current, runs = main.loop.run_until_complete(counts())
-    assert total == 6 and current == 3 and runs == 3
+    assert total == 8 and current == 4 and runs == 3
 
 
 def test_observation_content_fx_and_contact_protection(env):
@@ -113,7 +115,7 @@ def test_http_and_mcp_read_paths(env):
         assert r.status_code == 200 and len(r.json()["observations"]) == 2
         assert client.get("/observations/facebook:nope", headers=h).status_code == 404
         s = client.get("/extract/stats", headers=h).json()
-        assert s["claims_without_confidence"] == 0 and s["observations"] == 3 and s["by_signal_class"]["NON_PROPERTY"] == 1
+        assert s["claims_without_confidence"] == 0 and s["observations"] == 4 and s["by_signal_class"]["NON_PROPERTY"] == 1
         r = client.post("/admin/fx?currency=THB&rate_date=2026-09-01&lak_per_unit=640", headers=h)
         assert r.status_code == 200
         r = client.post("/admin/extract?force=1&limit=1", headers=h)
@@ -152,7 +154,7 @@ def test_geo_import_resolve_and_stats(env):
         r = client.get("/geo/resolve", headers=h, params={"text": "ຂາຍດິນ ບ້ານດົງໂດກ https://maps.google.com/?q=18.052,102.661"})
         assert r.status_code == 200 and r.json()["resolutions"][0]["village_code"] == "V-XTN-DDK"
         r = client.post("/admin/extract?force=1", headers=h)
-        assert r.status_code == 200 and r.json()["observations_out"] == 3
+        assert r.status_code == 200 and r.json()["observations_out"] == 4
         o = client.get("/observations/facebook:x1", headers=h).json()
         assert o["locations"] and o["locations"][0]["is_primary"] and o["locations"][0]["precision"] == "VILLAGE"
         assert o["locations"][0]["village_code"] == "V-XTN-NSP" and o["locations"][0]["admin_version"] == "sample-2026.09"
@@ -168,3 +170,70 @@ def test_geo_import_resolve_and_stats(env):
         assert mcp.status_code == 200 and "D-CPS-PKS" in mcp.text
         mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 4, "method": "tools/call", "params": {"name": "geo_stats", "arguments": {}}})
         assert mcp.status_code == 200 and "precision_assigned_share" in mcp.text
+
+
+def test_review_csv_round_trip_and_quality_stats(env):
+    """001G §6 CSV protocol on the extraction + location queues; audit rows; /quality/stats."""
+    import csv
+    import subprocess
+    from pathlib import Path
+
+    from fastapi.testclient import TestClient
+
+    main, _ = env
+    out = Path("/var/tmp/review-test")
+    envv = {**os.environ, "LENS_DB_DSN": DSN}
+    for q in ("extraction", "location"):
+        r = subprocess.run([sys.executable, "scripts/review.py", "export", "--queue", q, "--limit", "50", "--out", str(out)], capture_output=True, text=True, env=envv, cwd=Path(__file__).parents[1])
+        assert r.returncode == 0, r.stderr
+    ext = list(csv.DictReader((out / "review-extraction.csv").open(encoding="utf-8")))
+    loc = list(csv.DictReader((out / "review-location.csv").open(encoding="utf-8")))
+    assert any(row["record_key"] == "facebook:x4" and row["field"] == "PRICE" for row in ext)      # bare "350" is LOW_CONFIDENCE
+    assert any(row["record_key"] == "facebook:x4" and row["precision"] == "TEXT_ONLY" for row in loc)  # ambiguous ໂພນຕ້ອງ
+    assert all("raw_value" not in row["normalised"] for row in ext) and all("0205" not in row["context"] for row in ext)  # masked
+    # label: correct the price, confirm the location; one bad action to be skipped
+    for row in ext:
+        if row["record_key"] == "facebook:x4" and row["field"] == "PRICE":
+            row["action"], row["corrected_value"], row["reason"] = "CORRECT", "350000000", "350 ລ້ານ implied"
+    ext[0]["action"] = ext[0]["action"] or "BOGUS"
+    for row in loc:
+        if row["record_key"] == "facebook:x4":
+            row["action"], row["corrected_value"] = "CORRECT", "precision=DISTRICT;district_code=D-VTE-XST"
+    with (out / "review-extraction.csv").open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, list(ext[0].keys()))
+        w.writeheader()
+        w.writerows(ext)
+    with (out / "review-location.csv").open("w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, list(loc[0].keys()))
+        w.writeheader()
+        w.writerows(loc)
+    for name in ("review-extraction.csv", "review-location.csv"):
+        dry = subprocess.run([sys.executable, "scripts/review.py", "import", "--file", str(out / name), "--reviewer", "vily", "--dry-run"], capture_output=True, text=True, env=envv, cwd=Path(__file__).parents[1])
+        assert dry.returncode == 0 and "dry-run" in dry.stdout, dry.stderr
+        real = subprocess.run([sys.executable, "scripts/review.py", "import", "--file", str(out / name), "--reviewer", "vily"], capture_output=True, text=True, env=envv, cwd=Path(__file__).parents[1])
+        assert real.returncode == 0 and "imported" in real.stdout, real.stderr + real.stdout
+        again = subprocess.run([sys.executable, "scripts/review.py", "import", "--file", str(out / name), "--reviewer", "vily"], capture_output=True, text=True, env=envv, cwd=Path(__file__).parents[1])
+        assert "already reviewed" in again.stdout  # supersede guard
+    async def check():  # own connection: the previous TestClient's lifespan closed the shared pool
+        from app.db import Database
+
+        d = Database(DSN)
+        await d.connect()
+        async with d.pool.acquire() as con:
+            hc = await con.fetch("SELECT field, value_text, normalised, review_status, reviewer, supersedes_claim_id FROM extract.claims WHERE extraction_method='HUMAN'")
+            hl = await con.fetch("SELECT precision, district_code, review_status, supersedes_id, is_primary FROM geo.resolved_locations WHERE resolver_method='HUMAN'")
+            au = await con.fetch("SELECT queue, action, batch_id FROM audit.events ORDER BY event_id")
+            orig = await con.fetchval("SELECT review_status FROM extract.claims WHERE claim_id=$1", hc[0]["supersedes_claim_id"])
+        await d.close()
+        return [dict(x) for x in hc], [dict(x) for x in hl], [dict(x) for x in au], orig
+    hc, hl, au, orig = asyncio.run(check())
+    assert len(hc) == 1 and hc[0]["review_status"] == "CORRECTED" and hc[0]["reviewer"] == "vily" and '"350000000"' in hc[0]["normalised"]
+    assert orig == "UNREVIEWED"  # machine row untouched (0.35 is mid-confidence, queued by the < 0.5 rule)
+    assert len(hl) == 1 and hl[0]["precision"] == "DISTRICT" and hl[0]["district_code"] == "D-VTE-XST" and hl[0]["review_status"] == "CORRECTED"
+    assert len(au) == 2 and {a["queue"] for a in au} == {"extraction", "location"} and len({a["batch_id"] for a in au}) == 2
+    with TestClient(main.app) as client:
+        h = {"Authorization": "Bearer test-token"}
+        s = client.get("/quality/stats", headers=h).json()
+        assert s["dq_version"] and s["observations"] == 3 and sum(s["by_grade"].values()) == 3 and "mean_score" in s
+        mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "quality_stats", "arguments": {}}})
+        assert mcp.status_code == 200 and "by_grade" in mcp.text

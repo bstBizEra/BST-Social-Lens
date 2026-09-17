@@ -11,6 +11,7 @@ from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Any
 
+from ..quality.dq import DQ_VERSION, DqInput, evaluate_rules, score_observation
 from .models import Observation
 
 _SELECT_CANDIDATES = """
@@ -201,6 +202,60 @@ class ExtractStore:
             "by_asset_type": {r["asset_type"]: r["n"] for r in by_asset},
             "runs": [_row(r) for r in runs],
         }
+
+
+# ---------------------------------------------------------------- quality (001G §2), read-only until 001F snapshots exist
+
+_DQ_VIEW = """
+SELECT o.observation_id, o.record_key, o.post_date,
+       (SELECT c.confidence FROM extract.claims c WHERE c.observation_id=o.observation_id AND c.field='PRICE' ORDER BY c.confidence DESC LIMIT 1) AS price_conf,
+       EXISTS (SELECT 1 FROM extract.price_observations p WHERE p.observation_id=o.observation_id AND p.amount_lak IS NOT NULL) AS price_lak,
+       EXISTS (SELECT 1 FROM extract.price_observations p WHERE p.observation_id=o.observation_id) AS has_price_obs,
+       EXISTS (SELECT 1 FROM extract.claims c WHERE c.observation_id=o.observation_id AND c.field='PRICE') AS has_price_claim,
+       (SELECT c.confidence FROM extract.claims c WHERE c.observation_id=o.observation_id AND c.field='AREA' ORDER BY c.confidence DESC LIMIT 1) AS area_conf,
+       (SELECT (c.normalised->>'area_sqm')::numeric FROM extract.claims c WHERE c.observation_id=o.observation_id AND c.field='AREA' ORDER BY c.confidence DESC LIMIT 1) AS area_sqm,
+       (SELECT p.amount_lak FROM extract.price_observations p WHERE p.observation_id=o.observation_id ORDER BY p.confidence DESC LIMIT 1) AS amount_lak,
+       (SELECT p.price_per_sqm_lak FROM extract.price_observations p WHERE p.observation_id=o.observation_id AND p.price_per_sqm_lak IS NOT NULL LIMIT 1) AS psqm,
+       EXISTS (SELECT 1 FROM extract.claims c WHERE c.observation_id=o.observation_id AND c.field IN ('LOCATION_TEXT','MAP_URL','COORDINATE')) AS has_loc_claims,
+       (SELECT l.precision FROM geo.resolved_locations l WHERE l.observation_id=o.observation_id AND l.is_primary ORDER BY l.resolved_location_id DESC LIMIT 1) AS precision,
+       r.first_payload_hash, (rc.payload_hash IS NOT NULL) AS raw_row, (rc.body IS NOT NULL) AS raw_body
+FROM extract.current_observations o
+LEFT JOIN records r ON r.key = o.record_key
+LEFT JOIN raw_captures rc ON rc.payload_hash = r.first_payload_hash
+WHERE o.signal_class IN ('PROPERTY_SALE','PROPERTY_RENT','PROPERTY_WANTED')
+"""
+
+
+async def quality_stats(db: Any) -> dict[str, Any]:
+    """DQ distribution + validation exceptions over current property observations (computed on read; snapshots come with 001F)."""
+    async with db.pool.acquire() as con:
+        rows = await con.fetch(_DQ_VIEW)
+    by_grade: dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0}
+    total = 0
+    exceptions: dict[str, int] = {}
+    low: list[dict[str, Any]] = []
+    for r in rows:
+        x = DqInput(
+            price_present=r["price_conf"] is not None, price_confidence=float(r["price_conf"] or 0), price_has_lak=bool(r["price_lak"]),
+            area_present=r["area_conf"] is not None, area_confidence=float(r["area_conf"] or 0),
+            location_precision=r["precision"] or ("TEXT_ONLY" if r["has_loc_claims"] else "UNKNOWN"),
+            post_date_present=r["post_date"] is not None, payload_hash_present=bool(r["first_payload_hash"]),
+            raw_row_present=bool(r["raw_row"]), raw_body_present=bool(r["raw_body"]), decision=None,
+        )
+        res = score_observation(x)
+        by_grade[res.grade] += 1
+        total += res.score
+        for e in evaluate_rules({"amount_lak": r["amount_lak"], "area_sqm": r["area_sqm"], "price_per_sqm_lak": r["psqm"],
+                                 "post_date": r["post_date"].date() if r["post_date"] else None,
+                                 "has_price_observation": r["has_price_obs"], "has_price_claim": r["has_price_claim"],
+                                 "has_location_claims": r["has_loc_claims"], "has_resolution": r["precision"] is not None}):
+            exceptions[e.rule] = exceptions.get(e.rule, 0) + 1
+        if res.grade == "D" and len(low) < 20:
+            low.append({"observation_id": r["observation_id"], "record_key": r["record_key"], "score": res.score})
+    n = len(rows)
+    return {"dq_version": DQ_VERSION, "observations": n, "by_grade": by_grade, "mean_score": round(total / n, 1) if n else None,
+            "share_b_or_better": round((by_grade["A"] + by_grade["B"]) / n, 4) if n else None, "exceptions": exceptions,
+            "lowest": low, "note": "computed on read over current property observations; entity_match uses singleton credit until 001E is wired"}
 
 
 def _row(r: Any) -> dict[str, Any]:

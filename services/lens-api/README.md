@@ -145,7 +145,7 @@ Golden sets (C5): `python scripts/golden.py export --out DIR --limit 120` writes
 
 ## Quality & publication — `app/quality/`, `app/publish/` (Phase 8, 001G/001H) — pure modules
 
-`score_observation(DqInput) -> DqResult` (DQ 0–100, grade A–D, per-component reasons), `property_dq()`, `evaluate_rules()` (validation exceptions). `check_records()` / `check_bundle_text()` are the export negative check (no contacts, author hashes, text, media, permalinks, stray hashes). `audit.events` (`schema_audit.sql`) is applied at startup; review/publish endpoints follow the 001E/001F freezes.
+`score_observation(DqInput) -> DqResult` (DQ 0–100, grade A–D, per-component reasons), `property_dq()`, `evaluate_rules()` (validation exceptions). `check_records()` / `check_bundle_text()` are the export negative check (no contacts, author hashes, text, media, permalinks, stray hashes). `audit.events` (`schema_audit.sql`) is applied at startup. `GET /quality/stats` (and MCP `quality_stats`) reports DQ grades and exceptions over current observations. Review until the Portal: `python scripts/review.py export --queue extraction|location --out DIR` → fill `action`/`corrected_value`/`reason` → `python scripts/review.py import --file DIR/review-<queue>.csv --reviewer <id> [--dry-run]` (superseding HUMAN rows + audit batch; CSVs are never committed). Publish endpoints follow the 001E/001F freezes.
 
 ## Schema files and lint
 
