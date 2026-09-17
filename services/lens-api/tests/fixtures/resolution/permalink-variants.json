@@ -1,0 +1,55 @@
+{
+  "_note": "Sanitised URL shapes (ids are synthetic). Each group must canonicalise to one string; `identity` is the expected (platform, post_id) or null when opaque.",
+  "groups": [
+    {"name": "group post: posts vs permalink vs mobile vs tracking",
+     "identity": ["facebook", "7001"],
+     "urls": [
+       "https://www.facebook.com/groups/123456/posts/7001/",
+       "https://www.facebook.com/groups/123456/permalink/7001/?__cft__[0]=abc&__tn__=%2CO%2CP-R",
+       "https://m.facebook.com/groups/123456/posts/7001?mibextid=xyz&fbclid=IwAR1",
+       "https://mbasic.facebook.com/groups/123456/permalink/7001/?refid=18&_rdr",
+       "http://web.facebook.com/groups/123456/posts/7001/#comments",
+       "https://www.facebook.com/groups/123456/posts/7001/?comment_id=99&reply_comment_id=100&notif_id=1&notif_t=group_comment"
+     ]},
+    {"name": "group by vanity slug",
+     "identity": ["facebook", "7002"],
+     "urls": ["https://www.facebook.com/groups/laoproperty/posts/7002/", "https://m.facebook.com/groups/laoproperty/permalink/7002/?s=1&sfnsn=mo"]},
+    {"name": "permalink.php vs story.php",
+     "identity": ["facebook", "555"],
+     "urls": [
+       "https://www.facebook.com/permalink.php?story_fbid=555&id=42",
+       "https://m.facebook.com/story.php?story_fbid=555&id=42&mibextid=Nif5oz",
+       "https://www.facebook.com/permalink.php?id=42&story_fbid=555&__cft__[0]=zz"
+     ]},
+    {"name": "page posts numeric",
+     "identity": ["facebook", "8080"],
+     "urls": ["https://www.facebook.com/somepage/posts/8080", "https://m.facebook.com/somepage/posts/8080/?locale=lo_LA"]},
+    {"name": "page posts pfbid (opaque)",
+     "identity": null,
+     "urls": ["https://www.facebook.com/somepage/posts/pfbid0AbCdEf123/", "https://m.facebook.com/somepage/posts/pfbid0AbCdEf123?mibextid=1"]},
+    {"name": "photo",
+     "identity": ["facebook", "9090"],
+     "urls": ["https://www.facebook.com/photo/?fbid=9090&set=gm.1", "https://m.facebook.com/photo.php?fbid=9090&id=1&set=a.2&source=48"]},
+    {"name": "video/watch",
+     "identity": ["facebook", "3030"],
+     "urls": ["https://www.facebook.com/watch/?v=3030", "https://www.facebook.com/somepage/videos/3030/", "https://m.facebook.com/watch/?v=3030&_rdr"]},
+    {"name": "fb.watch short (opaque)",
+     "identity": null,
+     "urls": ["https://fb.watch/xyz123/", "https://fb.watch/xyz123/?mibextid=1"]},
+    {"name": "share link (opaque until payload)",
+     "identity": null,
+     "urls": ["https://www.facebook.com/share/p/AbC123xyz/", "https://www.facebook.com/share/p/AbC123xyz/?mibextid=oFDknk"]},
+    {"name": "tiktok video",
+     "identity": ["tiktok", "7300000000000000001"],
+     "urls": ["https://www.tiktok.com/@laoland/video/7300000000000000001", "https://m.tiktok.com/@laoland/video/7300000000000000001?_r=1&_t=8abc"]},
+    {"name": "tiktok short (opaque)",
+     "identity": null,
+     "urls": ["https://vt.tiktok.com/ZSabc123/", "https://vm.tiktok.com/ZSabc123"]}
+  ],
+  "distinct": [
+    "https://www.facebook.com/groups/123456/posts/7001/",
+    "https://www.facebook.com/groups/123456/posts/7002/",
+    "https://www.facebook.com/groups/654321/posts/7001/",
+    "https://www.facebook.com/permalink.php?story_fbid=555&id=43"
+  ]
+}
