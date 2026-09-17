@@ -13,6 +13,8 @@ from typing import Any
 import asyncpg
 
 SCHEMA_PATH = pathlib.Path(__file__).with_name("schema.sql")
+# L2 schemas are separate files, applied after the core schema; schema_lint keeps them additive.
+L2_SCHEMA_PATHS = [pathlib.Path(__file__).with_name("schema_extract.sql")]
 
 _UPSERT = """
 INSERT INTO records (
@@ -87,6 +89,7 @@ class Database:
     def __init__(self, dsn: str) -> None:
         self._dsn = dsn
         self._pool: asyncpg.Pool | None = None
+        self.pgcrypto: bool = False
 
     async def connect(self) -> None:
         self._pool = await asyncpg.create_pool(self._dsn, min_size=1, max_size=10)
@@ -106,6 +109,14 @@ class Database:
         async with self.pool.acquire() as con:
             await con.execute("CREATE EXTENSION IF NOT EXISTS pg_trgm;")
             await con.execute(SCHEMA_PATH.read_text(encoding="utf-8"))
+            # pgcrypto (C4) protects contact raw values; optional — without it raw values are not stored.
+            try:
+                await con.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto;")
+                self.pgcrypto = True
+            except Exception:  # noqa: BLE001 — privilege-dependent; degrade, never block startup
+                self.pgcrypto = False
+            for p in L2_SCHEMA_PATHS:
+                await con.execute(p.read_text(encoding="utf-8"))
 
     async def upsert_records(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
         """Returns (inserted, updated)."""
