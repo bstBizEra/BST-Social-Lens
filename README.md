@@ -52,7 +52,7 @@ npm test        # vitest parser tests (tests/fixtures)
 
 `platform, post_id, permalink, container_id, container_name, author_name, author_hash (author_id optional), author_url, text, lang, created_at, captured_at, reactions_total, comments_count, shares_count, views_count, media[], hashtags[], parser_version, synced`
 
-Author IDs are hashed (SHA-256) by default; raw payloads are retained 30 days for re-parsing and then purged. Post-level content and engagement only — the extension does not build member profiles.
+Author IDs are hashed (SHA-256) by default. Raw payloads are kept 30 days locally for re-parsing and, when *Send raw evidence* is on, pushed to the server as L0 evidence keyed by SHA-256 (`payload_hash`); every record carries the hash of the payload it came from. Post-level content and engagement only — the extension does not build member profiles.
 
 ## Responsible use
 

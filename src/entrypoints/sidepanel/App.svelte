@@ -114,7 +114,7 @@
   </div>
   <div class="muted">
     {#if stats?.lastCapture}Last capture {new Date(stats.lastCapture).toLocaleString()}{:else}No captures yet — open a Facebook group or TikTok page and scroll.{/if}
-    {#if stats?.unsynced} · {stats.unsynced} unsynced{/if}
+    {#if stats?.unsynced} · {stats.unsynced} unsynced{/if}{#if stats?.rawUnsynced} · {stats.rawUnsynced} raw unsynced{/if}
     {#if stats} · store mode: {stats.storeMode}{/if}
   </div>
   {#if settings}
@@ -192,6 +192,8 @@
     <label>Ingest URL <input type="url" value={settings.ingestUrl} onchange={(e) => patch({ ingestUrl: e.currentTarget.value })} placeholder="http://localhost:7710/ingest" /></label>
     <label>Bearer token <input type="password" value={settings.ingestToken} onchange={(e) => patch({ ingestToken: e.currentTarget.value })} /></label>
     <label class="toggle">Auto-sync every 5 min <input type="checkbox" checked={settings.autoSync} onchange={(e) => patch({ autoSync: e.currentTarget.checked })} /></label>
+    <label class="toggle">Send raw evidence (L0) with sync <input type="checkbox" checked={settings.sendRaw} onchange={(e) => patch({ sendRaw: e.currentTarget.checked })} /></label>
+    <div class="muted">Raw payloads let the server trace every record back to the exact response it was parsed from (provenance). Bodies are retained on the server for a limited time; hashes are kept.</div>
     <div class="row"><button class="primary" disabled={busy} onclick={sync}>Sync now</button></div>
   {/if}
 </section>

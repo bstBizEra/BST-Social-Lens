@@ -5,7 +5,10 @@ Owns no state itself; validate → upsert → record run.
 
 Endpoints
   GET  /health           liveness + record count
-  POST /ingest           receive a batch of SocialRecords (bearer auth)
+  POST /ingest           receive a batch of SocialRecords (bearer auth); records capture events
+  POST /raw              receive L0 raw payloads keyed by sha256 (bearer auth) — Phase 5 provenance
+  GET  /provenance/{key} L1 row → capture events → raw captures (bearer auth)
+  GET  /provenance       coverage metric (Phase 5 exit criterion)
   GET  /records          paginated read for the Console (bearer auth)
   GET  /stats            per-platform counts (bearer auth)
   POST /mcp              Model Context Protocol (Streamable HTTP, read-only tools; bearer auth)
@@ -26,7 +29,7 @@ from fastapi.staticfiles import StaticFiles
 
 from .db import Database
 from .mcp import McpDispatcher
-from .models import HealthResult, IngestBody, IngestResult, SeenBody, record_to_row
+from .models import HealthResult, IngestBody, IngestResult, RawBody, RawResult, SeenBody, record_to_row
 
 DSN = os.environ.get("LENS_DB_DSN", "postgresql://lens:lens@lens-db:5432/lens")
 TOKEN = os.environ.get("LENS_API_TOKEN", "")
@@ -34,9 +37,14 @@ TOKEN = os.environ.get("LENS_API_TOKEN", "")
 CORS_ORIGINS = [o for o in os.environ.get("LENS_CORS_ORIGINS", "").split(",") if o]
 # The Social Lens Console static dir; served at / when present (same-origin → no CORS).
 CONSOLE_DIR = os.environ.get("LENS_CONSOLE_DIR", "/srv/console")
-# Data minimisation: delete records older than this many days (by post date, else capture date).
-# 0 disables. Default 730 (24 months). The purge runs at startup and then every 24 h.
-RETENTION_DAYS = int(os.environ.get("LENS_RETENTION_DAYS", "730"))
+# Retention (SLL-PROP-DATA-001A D3), ordered L0 body → L1 rows; L2/L3 never; protected rows exempt.
+# L0: raw payload BODIES are nulled after N days (hash + capture context are kept forever).
+RAW_BODY_RETENTION_DAYS = int(os.environ.get("LENS_RAW_RETENTION_DAYS", "90"))
+# L1: records older than N days by post date (else capture date) are deleted unless `protected`.
+# 0 disables. Default 730 (24 months). Both run at startup and then every 24 h.
+RETENTION_DAYS = int(os.environ.get("LENS_RECORD_RETENTION_DAYS", os.environ.get("LENS_RETENTION_DAYS", "730")))
+# Raw payload body size accepted by POST /raw (bytes); larger bodies are rejected, not truncated here.
+RAW_MAX_BYTES = int(os.environ.get("LENS_RAW_MAX_BYTES", str(2_000_000)))
 PURGE_INTERVAL_S = 24 * 3600
 
 log = logging.getLogger("lens-api")
@@ -47,9 +55,10 @@ db = Database(DSN)
 async def _purge_loop() -> None:
     while True:
         try:
+            n_raw = await db.purge_raw_bodies(RAW_BODY_RETENTION_DAYS)
             res = await db.purge_records(RETENTION_DAYS)
-            if res["records"] or res["seen_links"]:
-                log.info("retention purge (%s days): %s", RETENTION_DAYS, res)
+            if n_raw or res["records"] or res["seen_links"]:
+                log.info("retention: raw bodies purged=%s (%s d); records=%s (%s d)", n_raw, RAW_BODY_RETENTION_DAYS, res, RETENTION_DAYS)
         except Exception as e:  # never let the purge take the API down
             log.warning("retention purge failed: %s", e)
         await asyncio.sleep(PURGE_INTERVAL_S)
@@ -58,14 +67,14 @@ async def _purge_loop() -> None:
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await db.connect()
-    task = asyncio.create_task(_purge_loop()) if RETENTION_DAYS > 0 else None
+    task = asyncio.create_task(_purge_loop()) if (RETENTION_DAYS > 0 or RAW_BODY_RETENTION_DAYS > 0) else None
     yield
     if task:
         task.cancel()
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.4.0", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.5.0", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -172,11 +181,41 @@ async def stats() -> dict:
 
 
 @app.post("/admin/purge", dependencies=[Depends(require_token)])
-async def admin_purge(days: int | None = Query(default=None, ge=0)) -> dict:
-    """Run the retention purge now. `days` overrides LENS_RETENTION_DAYS for this call (0 = no-op)."""
+async def admin_purge(days: int | None = Query(default=None, ge=0), raw_days: int | None = Query(default=None, ge=0)) -> dict:
+    """Run retention now, in order: L0 bodies (raw_days) then L1 records (days). Overrides apply to this call only; 0 = no-op."""
+    rd = RAW_BODY_RETENTION_DAYS if raw_days is None else raw_days
     d = RETENTION_DAYS if days is None else days
+    n_raw = await db.purge_raw_bodies(rd)
     res = await db.purge_records(d)
-    return {"retention_days": d, **res}
+    return {"raw_retention_days": rd, "raw_bodies_purged": n_raw, "retention_days": d, **res}
+
+
+@app.post("/raw", response_model=RawResult, dependencies=[Depends(require_token)])
+async def raw_ingest(body: RawBody) -> RawResult:
+    """L0 evidence. Hash must equal sha256(body) — the server verifies and rejects mismatches or oversize bodies."""
+    import hashlib
+    ok, rejected = [], []
+    for c in body.captures:
+        raw = c.body.encode("utf-8")
+        if len(raw) > RAW_MAX_BYTES or hashlib.sha256(raw).hexdigest() != c.payload_hash.lower():
+            rejected.append(c.payload_hash)
+            continue
+        ok.append({**c.model_dump(), "payload_hash": c.payload_hash.lower(), "body_bytes": len(raw), "ext_version": body.version})
+    inserted, duplicate = await db.upsert_raw(ok)
+    return RawResult(received=len(body.captures), inserted=inserted, duplicate=duplicate, rejected=len(rejected), rejected_hashes=rejected[:50])
+
+
+@app.get("/provenance", dependencies=[Depends(require_token)])
+async def provenance_coverage() -> dict:
+    return await db.provenance_coverage()
+
+
+@app.get("/provenance/{key}", dependencies=[Depends(require_token)])
+async def provenance(key: str) -> dict:
+    res = await db.provenance(key)
+    if res is None:
+        raise HTTPException(status_code=404, detail="unknown record key")
+    return res
 
 
 @app.post("/mcp", dependencies=[Depends(require_token)])

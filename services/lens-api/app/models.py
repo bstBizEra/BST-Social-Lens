@@ -53,6 +53,41 @@ class SocialRecord(BaseModel):
     media: list[Media] = Field(default_factory=list)
     hashtags: list[str] = Field(default_factory=list)
     parser_version: str | None = None
+    # Phase 5 provenance (optional; older extensions omit them)
+    payload_hash: str | None = None
+    content_hash: str | None = None
+
+
+class RawCapture(BaseModel):
+    """L0 payload as captured by the extension. `body` is the (possibly truncated) text."""
+    model_config = ConfigDict(extra="ignore")
+    payload_hash: str = Field(min_length=64, max_length=64)
+    platform: str | None = None
+    url: str
+    method: str | None = None
+    status: int | None = None
+    source: str | None = None
+    page_url: str | None = None
+    captured_at: datetime
+    body: str
+    body_bytes: int | None = None
+    truncated: bool = False
+    parser_version: str | None = None
+
+
+class RawBody(BaseModel):
+    model_config = ConfigDict(extra="ignore")
+    source: str | None = None
+    version: str | None = None
+    captures: list[RawCapture] = Field(default_factory=list)
+
+
+class RawResult(BaseModel):
+    received: int
+    inserted: int
+    duplicate: int
+    rejected: int
+    rejected_hashes: list[str] = Field(default_factory=list)
 
 
 class IngestBody(BaseModel):
@@ -126,6 +161,11 @@ def record_to_row(rec: SocialRecord, source: str | None, version: str | None) ->
         "media": [m.model_dump(exclude_none=True) for m in rec.media],
         "hashtags": rec.hashtags,
         "parser_version": rec.parser_version,
+        "content_hash": rec.content_hash,
+        "first_payload_hash": rec.payload_hash,
+        "last_payload_hash": rec.payload_hash,
+        "captured_at_event": rec.captured_at,
+        "page_url": None,
         "ingest_source": source,
         "ingest_version": version,
     }

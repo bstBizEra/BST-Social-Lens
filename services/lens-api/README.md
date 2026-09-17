@@ -104,8 +104,13 @@ Register in a client (Claude Code `.mcp.json` / MCP Hub gateway):
 Smoke test against a running server (token read from `.env`): `bash services/lens-api/mcp-smoke.sh`.
 Verified live on bizera-wsl 2026-09-17: 401 without token; initialize / tools/list / all five tools OK.
 
-## Retention (data minimisation)
+## L0 raw evidence + provenance (Phase 5)
 
-`LENS_RETENTION_DAYS` (default **730** = 24 months; `0` disables) — records whose post date
-(else capture date) is older are deleted, together with frontier rows no record references.
-Runs at startup and every 24 h in-process; `POST /admin/purge?days=N` (bearer) runs it now.
+`POST /raw` stores payloads keyed by SHA-256 (verified server-side; `LENS_RAW_MAX_BYTES`); `/ingest` records may carry `payload_hash`/`content_hash` and always produce a `capture_events` row. `GET /provenance/{key}` shows a record's sightings and whether its raw body is still present; `GET /provenance` reports coverage (Phase 5 exit metric).
+
+## Retention (data minimisation, ordered)
+
+1. `LENS_RAW_RETENTION_DAYS` (default **90**) — raw payload bodies are nulled; the hash row stays forever.
+2. `LENS_RECORD_RETENTION_DAYS` (default **730**; `0` disables) — records whose post date (else capture date) is older are deleted **unless `protected`**, plus frontier rows no record references. Capture events are kept.
+
+Runs at startup and every 24 h in-process; `POST /admin/purge?raw_days=&days=` (bearer) runs both now.

@@ -91,3 +91,51 @@ CREATE TABLE IF NOT EXISTS seen_links (
     updated_at    TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 CREATE INDEX IF NOT EXISTS idx_seen_updated ON seen_links (updated_at DESC);
+
+-- ---------------------------------------------------------------------------
+-- Phase 5 / SLL-PROP-DATA-001B — L0 RAW on the server + provenance (additive)
+-- ---------------------------------------------------------------------------
+
+-- L0: one row per distinct payload body (SHA-256). Body may be purged by retention;
+-- the row (hash + capture context) is never deleted, so provenance survives the body.
+CREATE TABLE IF NOT EXISTS raw_captures (
+    payload_hash    TEXT PRIMARY KEY,               -- sha256(body) computed in the extension
+    platform        TEXT,
+    url             TEXT NOT NULL,                  -- request URL that produced the payload
+    method          TEXT,
+    status          INTEGER,
+    source          TEXT,                           -- fetch | xhr | embedded | dom
+    page_url        TEXT,
+    captured_at     TIMESTAMPTZ NOT NULL,           -- first capture
+    body            TEXT,                           -- NULL after body retention
+    body_bytes      INTEGER NOT NULL DEFAULT 0,
+    truncated       BOOLEAN NOT NULL DEFAULT false,
+    parser_version  TEXT,
+    ext_version     TEXT,
+    received_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    body_purged_at  TIMESTAMPTZ
+);
+CREATE INDEX IF NOT EXISTS idx_raw_captured_at ON raw_captures (captured_at DESC);
+CREATE INDEX IF NOT EXISTS idx_raw_platform    ON raw_captures (platform);
+
+-- Capture events: every time a source record was seen, and from which payload.
+-- A post captured twice keeps both events (I1); the record row is one.
+CREATE TABLE IF NOT EXISTS capture_events (
+    id              BIGSERIAL PRIMARY KEY,
+    record_key      TEXT NOT NULL,                  -- `${platform}:${post_id}` (no FK: events may arrive before/after rows)
+    payload_hash    TEXT,                           -- → raw_captures.payload_hash (may arrive later)
+    captured_at     TIMESTAMPTZ NOT NULL,
+    page_url        TEXT,
+    parser_version  TEXT,
+    ingest_source   TEXT,
+    UNIQUE (record_key, payload_hash, captured_at)
+);
+CREATE INDEX IF NOT EXISTS idx_capev_record ON capture_events (record_key);
+CREATE INDEX IF NOT EXISTS idx_capev_hash   ON capture_events (payload_hash);
+
+-- L1 provenance columns
+ALTER TABLE records ADD COLUMN IF NOT EXISTS content_hash        TEXT;     -- sha256 of normalised content fields (extension)
+ALTER TABLE records ADD COLUMN IF NOT EXISTS first_payload_hash  TEXT;     -- payload that first produced this row
+ALTER TABLE records ADD COLUMN IF NOT EXISTS last_payload_hash   TEXT;     -- most recent payload
+ALTER TABLE records ADD COLUMN IF NOT EXISTS capture_count       INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE records ADD COLUMN IF NOT EXISTS protected           BOOLEAN NOT NULL DEFAULT false;  -- referenced by a published dataset → never purged (D3)
