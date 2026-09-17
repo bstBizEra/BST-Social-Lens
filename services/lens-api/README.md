@@ -64,6 +64,8 @@ Endpoint, auth, validation and `record_to_row` flattening are covered without Po
 |---|---|---|
 | `LENS_DB_DSN` | `postgresql://lens:lens@lens-db:5432/lens` | Postgres DSN |
 | `LENS_API_TOKEN` | *(empty = auth off)* | bearer token |
+| `LENS_RESOLUTION_ENABLED` | `0` | `1` applies `schema_market.sql` and enables the 001E resolution run, `/market/*`, `/resolution/stats`, `/admin/resolve` — keep off until 001E freezes |
+| `LENS_RESOLVE_INTERVAL_MIN` | `30` | resolution loop period (0 = off; only with the flag) |
 | `LENS_CORS_ORIGINS` | *(empty)* | comma-separated browser origins allowed to call the API (Console artifact URL) |
 
 ## Container-free run (runbook §2a)
@@ -141,9 +143,20 @@ PostGIS (G1): `scripts/install-postgis.sh` on the cluster, then restart — `sch
 
 Golden sets (C5): `python scripts/golden.py export --out DIR --limit 120` writes masked CSVs to label; `python scripts/golden.py build --records … --locations …` writes the fixtures the gates read (`tests/fixtures/extract/golden-v1.jsonl`, `tests/fixtures/geo/golden-v1.jsonl`).
 
-## Entity resolution — `app/resolution/` (Phase 7, 001E) — pure modules
+## Entity resolution — `app/resolution/` (Phase 7, 001E) — wired behind a flag
 
-`canonical_permalink(url)` / `post_identity(url)` (001E §3), `jaccard_3gram` / `simhash64` / `hamming` (§4/§6), `score_pair(Side, Side) -> Score` (`MATCH_V1`, §6; weights uncalibrated until the §11 reviewed sample), `build_clusters([ClusterInput]) -> (clusters, evidence)` (§4) and `block([Side]) -> BlockingResult` (§5). Not wired yet: candidates/decisions tables, run loop and `/market/*` follow 001F.
+Pure modules: `canonical_permalink(url)` / `post_identity(url)` (001E §3), `jaccard_3gram` / `simhash64` / `hamming` (§4/§6), `score_pair(Side, Side) -> Score` (`MATCH_V1`, §6; weights uncalibrated until the §11 reviewed sample), `build_clusters([ClusterInput]) -> (clusters, evidence)` (§4), `block([Side]) -> BlockingResult` (§5).
+
+Run (`service.run_resolution`, `store.ResolutionStore`; **only when `LENS_RESOLUTION_ENABLED=1`**, which also applies the 001F draft `schema_market.sql` at startup): load current SALE/RENT observations with primary location, size claims, price and contact hashes → listing clusters (append-only, deterministic ids) → blocking → `MATCH_V1` scoring → decisions in observation order: a `HIGH_CONFIDENCE_MATCH` links the observation to the best-scoring peer's market property (ties by property id); otherwise the observation opens or keeps its own `MP-` property as `SEPARATE_CANDIDATE`, or `REVIEW_REQUIRED` when a peer scored in the review band — every scored pair is stored as a candidate with its signals. Observations with a `HUMAN` decision are never re-decided (E4); already-decided ones only with `force=1` (new decision superseding the old — nothing edited). Each run ends with a `market.property_stats_snapshots` row per touched property (asking min/max/median/latest/dispersion per price type, advertiser and cluster counts, resolution confidence, review state). Background loop `LENS_RESOLVE_INTERVAL_MIN` (default 30, 0 = off). Off (the production default) ⇒ no schema applied, endpoints 404, MCP tools error.
+
+| Endpoint (flag on) | Semantics |
+|---|---|
+| `POST /admin/resolve?force=` | run now |
+| `GET /market/properties?status=&min_obs=&limit=` | properties with their latest snapshot |
+| `GET /market/properties/{mp}` | property + current observations (record keys, decisions, scores) + snapshot history |
+| `GET /resolution/stats` | run history, decisions by state/source, candidates, `unexplained_machine_decisions` (must be 0: stored score ≠ sum of signal contributions) |
+
+MCP: `search_market_properties`, `get_market_property`, `resolution_stats`. Live test: `LENS_RESOLUTION_ENABLED=1 LENS_TEST_DSN=… pytest tests/test_resolution_live.py` (four advertisers + a re-post of one 20×30 Dongdok parcel land on one property with all five prices in the snapshot; a Pakse decoy stays separate; a human `UNLINKED` survives a forced re-run).
 
 ## Quality & publication — `app/quality/`, `app/publish/` (Phase 8, 001G/001H) — pure modules
 
@@ -151,7 +164,7 @@ Golden sets (C5): `python scripts/golden.py export --out DIR --limit 120` writes
 
 ## Schema files and lint
 
-`app/schema.sql` = L0/L1 (core); `app/schema_<layer>.sql` = L2/L3 (`schema_extract.sql`, `schema_geo.sql`, `schema_audit.sql` applied; `schema_market.sql` is the 001F draft, linted but not applied until 001E freezes), additive only. `python scripts/schema_lint.py app` (also `tests/test_schema_lint.py`) rejects L2 statements that touch L0/L1 tables, bare fact-like column names (`price`, `owner`, `property`, `area`, `parcel`, `title`, BizProp+ ids), observation/claim tables without a NOT NULL 0..1 `confidence`, DROP/DELETE in the core file, claims JSON that could carry a raw contact value, price-like columns on `market.properties`, snapshot tables without `stats_version`/`computed_at`, and decision/link tables without `supersedes_*` (or with `updated_at`). `LENS_CONTACT_KEY` (optional) is the pgcrypto key for `extract.contact_points.raw_value_enc`; unset ⇒ raw contact values are not stored (masked + hash only).
+`app/schema.sql` = L0/L1 (core); `app/schema_<layer>.sql` = L2/L3 (`schema_extract.sql`, `schema_geo.sql`, `schema_audit.sql` applied; `schema_market.sql` is the 001F draft, linted; applied only with `LENS_RESOLUTION_ENABLED=1` until 001E freezes), additive only. `python scripts/schema_lint.py app` (also `tests/test_schema_lint.py`) rejects L2 statements that touch L0/L1 tables, bare fact-like column names (`price`, `owner`, `property`, `area`, `parcel`, `title`, BizProp+ ids), observation/claim tables without a NOT NULL 0..1 `confidence`, DROP/DELETE in the core file, claims JSON that could carry a raw contact value, price-like columns on `market.properties`, snapshot tables without `stats_version`/`computed_at`, and decision/link tables without `supersedes_*` (or with `updated_at`). `LENS_CONTACT_KEY` (optional) is the pgcrypto key for `extract.contact_points.raw_value_enc`; unset ⇒ raw contact values are not stored (masked + hash only).
 
 ## Retention (data minimisation, ordered)
 

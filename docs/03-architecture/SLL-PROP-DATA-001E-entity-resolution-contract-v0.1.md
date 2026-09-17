@@ -1,7 +1,7 @@
 # SLL-PROP-DATA-001E — Entity-Resolution Contract v0.1
 
 - Parent: `SLL-PROP-DATA-001` (frozen) · Boundary: `001A` (frozen) · Inputs: `001C` observations/claims, `001D` resolved locations · Roadmap: ADR-0005 Phase 7 → v0.9.0
-- Status: **Draft for freeze** (2026-09-17). Freezes when the matcher passes §11 on a reviewed sample of ≥ 50 market properties. Implementation state: §3 permalink rules, §4/§6 text similarity and `MATCH_V1` scorer implemented as pure modules in `services/lens-api/app/resolution/` (fixture-tested, uncalibrated); §4 cluster builder and §5 blocking implemented as pure modules; §7 decisions/DDL, §8–§10 pending 001F.
+- Status: **Draft for freeze** (2026-09-17). Freezes when the matcher passes §11 on a reviewed sample of ≥ 50 market properties. Implementation state: §3 permalink rules, §4/§6 text similarity and `MATCH_V1` scorer implemented as pure modules in `services/lens-api/app/resolution/` (fixture-tested, uncalibrated); §4 cluster builder and §5 blocking implemented as pure modules; §7 decisions, §8 market properties + statistics snapshots and §10 run model wired end-to-end (`app/resolution/service.py`, `store.py`) on the 001F draft DDL **behind `LENS_RESOLUTION_ENABLED` (off in production)** with a live end-to-end test; §9 review actions on decisions follow the review workbench; calibration (E1) and the §11 gate wait for real data.
 - Contract family: **C04 Entity Resolution** — *same-property resolution never destroys source observations*
 
 ## 1. Purpose and scope

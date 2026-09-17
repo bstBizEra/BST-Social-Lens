@@ -16,6 +16,7 @@ SCHEMA_PATH = pathlib.Path(__file__).with_name("schema.sql")
 # L2 schemas are separate files, applied after the core schema; schema_lint keeps them additive.
 L2_SCHEMA_PATHS = [pathlib.Path(__file__).with_name("schema_extract.sql"), pathlib.Path(__file__).with_name("schema_geo.sql"), pathlib.Path(__file__).with_name("schema_audit.sql")]
 POSTGIS_SCHEMA_PATH = pathlib.Path(__file__).with_name("schema_postgis.sql")  # applied only when postgis is installed
+MARKET_SCHEMA_PATH = pathlib.Path(__file__).with_name("schema_market.sql")    # 001F draft: applied only when enable_market (LENS_RESOLUTION_ENABLED=1)
 
 _UPSERT = """
 INSERT INTO records (
@@ -92,6 +93,7 @@ class Database:
         self._pool: asyncpg.Pool | None = None
         self.pgcrypto: bool = False
         self.postgis: bool = False
+        self.enable_market: bool = False  # set by main from LENS_RESOLUTION_ENABLED; off until 001E freezes
         self.extract: Any = None  # ExtractStore, attached by main (L2 reads for /mcp)
         self.geo: Any = None  # GeoStore, attached by main
 
@@ -125,6 +127,8 @@ class Database:
             self.postgis = bool(await con.fetchval("SELECT 1 FROM pg_extension WHERE extname = 'postgis'"))
             if self.postgis:
                 await con.execute(POSTGIS_SCHEMA_PATH.read_text(encoding="utf-8"))
+            if self.enable_market:
+                await con.execute(MARKET_SCHEMA_PATH.read_text(encoding="utf-8"))
 
     async def upsert_records(self, rows: list[dict[str, Any]]) -> tuple[int, int]:
         """Returns (inserted, updated)."""

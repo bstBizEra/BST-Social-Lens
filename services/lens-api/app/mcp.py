@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.2"}
+SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.3"}
 
 # JSON-RPC error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL = -32700, -32600, -32601, -32602, -32603
@@ -121,6 +121,21 @@ TOOLS: list[dict[str, Any]] = [
         "description": "Phase 8 (001G): DQ grade distribution (A–D), mean score, share B-or-better, validation exception counts over current property observations.",
         "inputSchema": {"type": "object", "properties": {}},
     },
+    {
+        "name": "search_market_properties",
+        "description": "Phase 7 (001E, only when resolution is enabled): active market properties with latest statistics snapshot. Prices are OBSERVED_ASKING statistics, never a single value.",
+        "inputSchema": {"type": "object", "properties": {"district": {"type": "string"}, "village": {"type": "string"}, "asset_type": {"type": "string"}, "state": {"type": "string", "enum": ["CLEAN", "PENDING_REVIEW", "DISPUTED"]}, "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT, "default": 25}}},
+    },
+    {
+        "name": "get_market_property",
+        "description": "One market property: statistics snapshot, current observations with their decision and match signals, price observations, decision history.",
+        "inputSchema": {"type": "object", "properties": {"market_property_id": {"type": "string"}}, "required": ["market_property_id"]},
+    },
+    {
+        "name": "resolution_stats",
+        "description": "Resolution KPIs: properties, multi-observation properties, clusters, decisions by state, review-queue p95 age, unexplained machine decisions (must be 0), recent runs.",
+        "inputSchema": {"type": "object", "properties": {}},
+    },
 ]
 
 ToolFn = Callable[[dict[str, Any]], Awaitable[Any]]
@@ -171,6 +186,9 @@ class McpDispatcher:
             "geo_stats": self.geo_stats,
             "resolve_text": self.resolve_text,
             "quality_stats": self.quality_stats,
+            "search_market_properties": self.search_market_properties,
+            "get_market_property": self.get_market_property,
+            "resolution_stats": self.resolution_stats,
         }
 
     # ---------- tools ----------
@@ -236,6 +254,27 @@ class McpDispatcher:
         from .extract.store import quality_stats
 
         return await quality_stats(self.db)
+
+    def _res(self) -> Any:
+        r = getattr(self.db, "resolution", None)
+        if r is None:
+            raise ValueError("resolution is disabled (LENS_RESOLUTION_ENABLED=0)")
+        return r
+
+    async def search_market_properties(self, a: dict[str, Any]) -> Any:
+        return await self._res().list_properties(a.get("district"), a.get("village"), a.get("asset_type"), a.get("state"), _clamp_limit(a, 25))
+
+    async def get_market_property(self, a: dict[str, Any]) -> Any:
+        mp = a.get("market_property_id")
+        if not isinstance(mp, str) or not mp.startswith("MP-"):
+            raise ValueError("market_property_id must look like MP-…")
+        res = await self._res().get_property(mp)
+        if res is None:
+            raise ValueError("unknown market property")
+        return res
+
+    async def resolution_stats(self, a: dict[str, Any]) -> Any:
+        return await self._res().stats()
 
     # ---------- JSON-RPC ----------
 

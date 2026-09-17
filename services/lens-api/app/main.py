@@ -23,6 +23,9 @@ Endpoints
   GET  /geo/stats        gazetteer + precision distribution + 001D §9.5 evidence (bearer auth)
   GET  /geo/resolve?text= dry-run resolver over a text; no write (bearer auth)
   GET  /quality/stats    DQ grade distribution + validation exceptions over current observations (bearer auth) — 001G
+  --- only with LENS_RESOLUTION_ENABLED=1 (001E/001F draft schema; off in production until 001E freezes) ---
+  POST /admin/resolve    run clusters → blocking → MATCH_V1 → decisions now (bearer auth)
+  GET  /market/properties, /market/properties/{id}, /resolution/stats   L2 market view (bearer auth)
 """
 from __future__ import annotations
 
@@ -46,6 +49,8 @@ from .extract.service import run_extraction
 from .extract.store import ExtractStore, quality_stats
 from .geo.resolver import resolve as geo_resolve
 from .geo.store import GeoStore
+from .resolution.service import run_resolution
+from .resolution.store import ResolutionStore, resolution_enabled
 from .mcp import McpDispatcher
 from .models import HealthResult, IngestBody, IngestResult, RawBody, RawResult, SeenBody, record_to_row
 
@@ -70,6 +75,9 @@ EXTRACT_BATCH = int(os.environ.get("LENS_EXTRACT_BATCH", "500"))
 # Contact points (D5/C4): salt for contact hashes (stable per deployment) and pgcrypto key for raw values.
 CONTACT_SALT = os.environ.get("LENS_CONTACT_SALT") or hashlib.sha256(f"contact-salt:{TOKEN}".encode()).hexdigest()
 CONTACT_KEY = os.environ.get("LENS_CONTACT_KEY") or None
+# Phase 7 (001E) — resolution loop; the 001F draft schema is applied only when this flag is on.
+RESOLUTION_ENABLED = resolution_enabled()
+RESOLVE_INTERVAL_MIN = int(os.environ.get("LENS_RESOLVE_INTERVAL_MIN", "30"))
 
 log = logging.getLogger("lens-api")
 
@@ -79,6 +87,26 @@ geo_store = GeoStore(db)
 extract_store.geo = geo_store  # extraction runs resolve locations in the same transaction (001D)
 db.extract = extract_store  # exposes the L2 stores to the MCP dispatcher (read-only tools)
 db.geo = geo_store
+db.enable_market = RESOLUTION_ENABLED
+resolution_store = ResolutionStore(db)
+db.resolution = resolution_store if RESOLUTION_ENABLED else None
+_resolve_lock = asyncio.Lock()
+
+
+async def _resolve_once(trigger: str, force: bool = False) -> dict:
+    async with _resolve_lock:
+        return await run_resolution(resolution_store, trigger=trigger, force=force)
+
+
+async def _resolve_loop() -> None:
+    while True:
+        try:
+            res = await _resolve_once("scheduled")
+            if res["decisions"]:
+                log.info("resolution: %s", res)
+        except Exception as e:  # never let resolution take the API down
+            log.warning("resolution run failed: %s", e)
+        await asyncio.sleep(RESOLVE_INTERVAL_MIN * 60)
 _extract_lock = asyncio.Lock()
 
 
@@ -116,14 +144,15 @@ async def lifespan(app: FastAPI):
     await db.connect()
     task = asyncio.create_task(_purge_loop()) if (RETENTION_DAYS > 0 or RAW_BODY_RETENTION_DAYS > 0) else None
     xtask = asyncio.create_task(_extract_loop()) if EXTRACT_INTERVAL_MIN > 0 else None
+    rtask = asyncio.create_task(_resolve_loop()) if (RESOLUTION_ENABLED and RESOLVE_INTERVAL_MIN > 0) else None
     yield
-    for t in (task, xtask):
+    for t in (task, xtask, rtask):
         if t:
             t.cancel()
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.2", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.3", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -352,6 +381,36 @@ async def geo_resolve_dry(text: str = Query(min_length=1, max_length=4000)) -> d
 @app.get("/quality/stats", dependencies=[Depends(require_token)])
 async def quality_stats_endpoint() -> dict:
     return await quality_stats(db)
+
+
+def require_resolution() -> None:
+    if not RESOLUTION_ENABLED:
+        raise HTTPException(status_code=404, detail="resolution is disabled (LENS_RESOLUTION_ENABLED=0; 001E not frozen)")
+
+
+@app.post("/admin/resolve", dependencies=[Depends(require_token), Depends(require_resolution)])
+async def admin_resolve(force: bool = Query(default=False)) -> dict:
+    return await _resolve_once("admin", force)
+
+
+@app.get("/market/properties", dependencies=[Depends(require_token), Depends(require_resolution)])
+async def market_properties(district: str | None = None, village: str | None = None, asset: str | None = None, state: str | None = None,
+                            limit: int = Query(default=50, ge=1, le=500)) -> dict:
+    rows = await resolution_store.list_properties(district, village, asset, state, limit)
+    return {"properties": rows, "count": len(rows)}
+
+
+@app.get("/market/properties/{mp}", dependencies=[Depends(require_token), Depends(require_resolution)])
+async def market_property(mp: str) -> dict:
+    res = await resolution_store.get_property(mp)
+    if res is None:
+        raise HTTPException(status_code=404, detail="unknown market property")
+    return res
+
+
+@app.get("/resolution/stats", dependencies=[Depends(require_token), Depends(require_resolution)])
+async def resolution_stats() -> dict:
+    return await resolution_store.stats()
 
 
 @app.post("/mcp", dependencies=[Depends(require_token)])

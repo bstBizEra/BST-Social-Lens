@@ -40,9 +40,13 @@ def env():
         main.db._dsn = DSN
         await main.db.connect()
         async with main.db.pool.acquire() as con:
+            if await con.fetchval("SELECT to_regclass('market.properties') IS NOT NULL"):  # 001E suite ran on this DB (flag on)
+                await con.execute("""DELETE FROM market.property_stats_snapshots; DELETE FROM resolution.entity_decisions; DELETE FROM resolution.entity_candidates;
+                                     DELETE FROM resolution.property_transitions; DELETE FROM market.properties; DELETE FROM resolution.cluster_edges;
+                                     DELETE FROM resolution.cluster_members; DELETE FROM resolution.listing_clusters; DELETE FROM resolution.runs""")
             await con.execute("DELETE FROM audit.events; DELETE FROM geo.resolved_locations; DELETE FROM extract.contact_sightings; DELETE FROM extract.price_observations; DELETE FROM extract.claims; "
                               "DELETE FROM extract.observations; DELETE FROM extract.runs; DELETE FROM extract.contact_points; DELETE FROM extract.fx_rates;")
-            await con.execute("DELETE FROM records WHERE key LIKE 'facebook:x%'")
+            await con.execute("DELETE FROM records WHERE key LIKE 'facebook:x%' OR key LIKE 'facebook:m%'")  # m* = 001E live suite
             for key, text in POSTS:
                 await con.execute(
                     "INSERT INTO records (key, platform, post_id, record_type, text, captured_at, created_at, content_hash) VALUES ($1,'facebook',$2,'post',$3,$4,$5,$6)",
