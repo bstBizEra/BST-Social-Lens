@@ -47,6 +47,8 @@ def env():
             await con.execute("DELETE FROM housekeeping.actions; DELETE FROM housekeeping.findings; DELETE FROM housekeeping.checks; DELETE FROM housekeeping.watermarks; DELETE FROM housekeeping.lifecycle_states; DELETE FROM housekeeping.runs")
             await con.execute("DELETE FROM audit.events; DELETE FROM geo.resolved_locations; DELETE FROM extract.contact_sightings; DELETE FROM extract.price_observations; DELETE FROM extract.claims; "
                               "DELETE FROM extract.observations; DELETE FROM extract.runs; DELETE FROM extract.contact_points; DELETE FROM extract.fx_rates;")
+            await con.execute("DELETE FROM capture_events WHERE record_key LIKE 'facebook:x%' OR record_key LIKE 'facebook:m%'")
+            await con.execute("DELETE FROM housekeeping.raw_needed")
             await con.execute("DELETE FROM records WHERE key LIKE 'facebook:x%' OR key LIKE 'facebook:m%'")  # m* = 001E live suite
             for key, text in POSTS:
                 await con.execute(
