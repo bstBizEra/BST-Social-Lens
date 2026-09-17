@@ -42,3 +42,6 @@ input[type="text"], input[type="url"], input[type="password"], input[type="numbe
 .toggle { display: flex; justify-content: space-between; align-items: center; font-size: 13px; color: var(--text); }
 .muted { color: var(--muted); font-size: 12px; }
 .msg { font-size: 12px; padding: 8px 10px; border-radius: 8px; background: var(--panel-2); }
+/* 0.7.2 capture targets */
+.row.target { flex-wrap: nowrap; }
+.row.target .grow { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

@@ -139,3 +139,6 @@ ALTER TABLE records ADD COLUMN IF NOT EXISTS first_payload_hash  TEXT;     -- pa
 ALTER TABLE records ADD COLUMN IF NOT EXISTS last_payload_hash   TEXT;     -- most recent payload
 ALTER TABLE records ADD COLUMN IF NOT EXISTS capture_count       INTEGER NOT NULL DEFAULT 1;
 ALTER TABLE records ADD COLUMN IF NOT EXISTS protected           BOOLEAN NOT NULL DEFAULT false;  -- referenced by a published dataset → never purged (D3)
+-- 0.7.2 sightings: the context a capture event happened in (container:<group id> | page:<host/path>); NULL for older extensions
+ALTER TABLE capture_events ADD COLUMN IF NOT EXISTS context TEXT;
+CREATE INDEX IF NOT EXISTS idx_capev_context ON capture_events (record_key, context);

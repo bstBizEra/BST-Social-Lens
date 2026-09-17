@@ -42,7 +42,7 @@ Response: `{ "received": n, "inserted": i, "updated": u, "run_id": id }`.
 
 ## Dedup semantics
 
-Primary key is `key = "${platform}:${post_id}"`. On conflict the row is updated, not duplicated: engagement counts and text refresh via `COALESCE`, `captured_at` takes `GREATEST`, `created_at` and `first_seen` are preserved. This makes repeated syncs from multiple capture accounts idempotent.
+Primary key is `key = "${platform}:${post_id}"`. On conflict the row is updated, not duplicated: engagement counts and text refresh via `COALESCE`, `captured_at` takes `GREATEST`, `created_at` and `first_seen` are preserved. This makes repeated syncs from multiple capture accounts idempotent. Every received record also adds one `capture_events` row (`context` = `container:<group id>` or `page:<host/path>` from extension 0.7.2, which only re-sends a record on a new context or changed content); `GET /provenance` reports `records_seen_in_multiple_contexts`.
 
 ## Auth
 

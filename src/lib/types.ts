@@ -77,6 +77,12 @@ export interface SocialRecord {
   payload_hash?: string;
   /** SHA-256 of the record's content fields (text, dates, permalink, media, hashtags, author_hash). */
   content_hash?: string;
+  /** Sighting contexts this record was captured from (group id, page/profile path, permalink…) — 0.7.2. */
+  contexts?: string[];
+  /** Number of sightings that were recorded (new context or changed content); repeats are not counted. */
+  sightings?: number;
+  /** Context of the sighting that queued this record for sync (sent as capture_events.context). */
+  sighting_context?: string;
   /** Synced to the ingest API? */
   synced: 0 | 1;
 }
@@ -146,6 +152,8 @@ export interface Settings {
   autoRun: AutoRunConfig;
   /** Phase 5: push raw payloads (L0 evidence) to the server alongside records. */
   sendRaw: boolean;
+  /** Capture targets: group/page links the operator works through (opened by click, never navigated to automatically). */
+  captureTargets: CaptureTarget[];
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -162,6 +170,7 @@ export const DEFAULT_SETTINGS: Settings = {
   captureComments: true,
   autoRun: DEFAULT_AUTORUN,
   sendRaw: true,
+  captureTargets: [],
 };
 
 /* ---------- Messages: page (MAIN world) → bridge (isolated) → background ---------- */
@@ -192,6 +201,8 @@ export type RuntimeMessage =
   | { type: 'clear'; what: 'records' | 'raw' | 'seen' | 'all' }
   | { type: 'sync' }
   | { type: 'hostPermission'; request: boolean }
+  | { type: 'targets'; op: 'add' | 'remove'; url: string; label?: string }
+  | { type: 'openTarget'; url: string }
   | { type: 'getSettings' }
   | { type: 'setSettings'; settings: Partial<Settings> }
   /** Is this normalized URL already in the frontier? */
@@ -212,6 +223,16 @@ export interface AutoProgress {
   reason: string | null;
 }
 
+export interface CaptureTarget {
+  /** Normalised link as entered (https://www.facebook.com/groups/<id-or-slug>). */
+  url: string;
+  label?: string;
+  /** Container id learned from the first capture made while this link was the page URL. */
+  container_id?: string;
+  added_at: string;
+  last_captured_at?: string;
+}
+
 export interface Stats {
   records: Record<Platform, number>;
   comments: number;
@@ -220,6 +241,10 @@ export interface Stats {
   raw: number;
   unsynced: number;
   rawUnsynced: number;
+  /** Re-sightings skipped since the service worker started (same post, same context, same content). */
+  repeatsSkipped: number;
+  /** Records per capture target (by learned container id). */
+  perTarget: Record<string, number>;
   lastCapture?: string;
   captureEnabled: boolean;
   storeMode: Settings['storeMode'];

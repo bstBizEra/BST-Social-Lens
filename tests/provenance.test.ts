@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contentHashInput, planRawBatch, truncateUtf8, utf8Length } from '../src/lib/provenance';
+import { contentHashInput, decideSighting, normalizeTargetUrl, planRawBatch, sightingContext, truncateUtf8, utf8Length } from '../src/lib/provenance';
 
 describe('contentHashInput', () => {
   const base = { platform: 'facebook' as const, post_id: '1', record_type: 'post' as const, text: 'ຂາຍດິນ', created_at: '2026-09-17T00:00:00Z', permalink: 'https://www.facebook.com/groups/1/posts/1/', media: [{ kind: 'image' as const, url: 'https://x/a.jpg' }], hashtags: ['ດິນ'], author_hash: 'h' };
@@ -55,5 +55,31 @@ describe('truncateUtf8', () => {
     const r = truncateUtf8(body, 2000);
     expect(utf8Length(r.text)).toBeLessThanOrEqual(2000);
     expect(utf8Length(r.text)).toBeGreaterThan(1990);
+  });
+});
+
+describe('sightings (0.7.2): once per context, again on a new context or changed content', () => {
+  it('context is the container when known, else host+path without query', () => {
+    expect(sightingContext('https://www.facebook.com/groups/123/?sorting=new', '123')).toBe('container:123');
+    expect(sightingContext('https://m.facebook.com/groups/123/?sorting=new', undefined)).toBe('page:facebook.com/groups/123');
+    expect(sightingContext('https://www.facebook.com/some.page/posts/99?x=1', undefined)).toBe('page:facebook.com/some.page/posts/99');
+    expect(sightingContext(undefined, undefined)).toBe('page:unknown');
+  });
+  it('decides new / repeat / new_context / changed', () => {
+    const stored = { content_hash: 'h1', contexts: ['container:123'] };
+    expect(decideSighting(undefined, { content_hash: 'h1' }, 'container:123')).toBe('new');
+    expect(decideSighting(stored, { content_hash: 'h1' }, 'container:123')).toBe('repeat');
+    expect(decideSighting(stored, { content_hash: 'h1' }, 'container:456')).toBe('new_context');
+    expect(decideSighting(stored, { content_hash: 'h1' }, 'page:facebook.com/permalink.php')).toBe('new_context');
+    expect(decideSighting(stored, { content_hash: 'h2' }, 'container:123')).toBe('changed');
+    // rows from before 0.7.2 have no contexts → the first re-sighting counts as a new context (never silently dropped)
+    expect(decideSighting({ content_hash: 'h1' }, { content_hash: 'h1' }, 'container:123')).toBe('new_context');
+  });
+  it('normalises capture-target links and rejects other sites', () => {
+    expect(normalizeTargetUrl('https://m.facebook.com/groups/laoland/?ref=share')).toBe('https://www.facebook.com/groups/laoland');
+    expect(normalizeTargetUrl('http://fb.com/groups/123456/')).toBe('https://www.facebook.com/groups/123456');
+    expect(normalizeTargetUrl('https://www.tiktok.com/tag/ຂາຍດິນ')).toBe('https://www.tiktok.com/tag/%E0%BA%82%E0%BA%B2%E0%BA%8D%E0%BA%94%E0%BA%B4%E0%BA%99');
+    expect(normalizeTargetUrl('https://example.com/groups/1')).toBeNull();
+    expect(normalizeTargetUrl('not a url')).toBeNull();
   });
 });

@@ -81,3 +81,49 @@ export function utf8Length(s: string): number {
   }
   return n;
 }
+
+
+/* ---------- Sightings (0.7.2): a post is recorded once per context; a re-sighting in the same context with the same
+ * content is a repeat and is NOT re-stored or re-sent. A new context (another group/page/permalink) or changed content
+ * is new evidence (SLL-PROP-DATA-001A I1) and is recorded as a further sighting. ---------- */
+
+/** Context key of a sighting: the container (group) id when known, else the page URL's host+path (query stripped). */
+export function sightingContext(page_url: string | undefined, container_id: string | undefined): string {
+  if (container_id) return `container:${container_id}`;
+  try {
+    const u = new URL(page_url ?? '');
+    const path = u.pathname.replace(/\/+$/, '') || '/';
+    return `page:${u.hostname.replace(/^(www|m|mbasic|web)\./, '')}${path}`;
+  } catch {
+    return 'page:unknown';
+  }
+}
+
+export type SightingDecision = 'new' | 'repeat' | 'new_context' | 'changed';
+
+export function decideSighting(
+  existing: Pick<SocialRecord, 'content_hash' | 'contexts'> | undefined,
+  incoming: Pick<SocialRecord, 'content_hash'>,
+  ctx: string,
+): SightingDecision {
+  if (!existing) return 'new';
+  const seen = existing.contexts ?? [];
+  const sameContent = !!existing.content_hash && existing.content_hash === incoming.content_hash;
+  if (!sameContent) return 'changed';
+  return seen.includes(ctx) ? 'repeat' : 'new_context';
+}
+
+/** Normalise a capture-target link: https, canonical host, no query/hash, no trailing slash. Returns null if not a
+ * Facebook/TikTok link. */
+export function normalizeTargetUrl(input: string): string | null {
+  try {
+    const u = new URL(input.trim());
+    const host = u.hostname.toLowerCase().replace(/^(www|m|mbasic|web|touch)\./, '');
+    if (!/(^|\.)(facebook\.com|fb\.com|tiktok\.com)$/.test(host)) return null;
+    const canonicalHost = host.endsWith('tiktok.com') ? 'www.tiktok.com' : 'www.facebook.com';
+    const path = u.pathname.replace(/\/+$/, '');
+    return path ? `https://${canonicalHost}${path}` : null;
+  } catch {
+    return null;
+  }
+}

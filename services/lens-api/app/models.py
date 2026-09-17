@@ -56,6 +56,9 @@ class SocialRecord(BaseModel):
     # Phase 5 provenance (optional; older extensions omit them)
     payload_hash: str | None = None
     content_hash: str | None = None
+    # 0.7.2 sightings: where this sighting happened (container:<id> | page:<host/path>); repeats are not sent
+    sighting_context: str | None = None
+    sightings: int | None = None
 
 
 class RawCapture(BaseModel):
@@ -166,6 +169,7 @@ def record_to_row(rec: SocialRecord, source: str | None, version: str | None) ->
         "last_payload_hash": rec.payload_hash,
         "captured_at_event": rec.captured_at,
         "page_url": None,
+        "context": rec.sighting_context,
         "ingest_source": source,
         "ingest_version": version,
     }

@@ -17,6 +17,8 @@ Facebook / TikTok tab
 
 Chrome/Edge MV3 cannot read response bodies with `webRequest`, so capture happens from a page-world script that wraps `window.fetch` and `XMLHttpRequest`. No credentials are handled; the extension only sees what the page already loaded for you.
 
+**Sightings (0.7.2).** A post is stored once per *context* — the group it was seen in, or the page/permalink path otherwise. Seeing it again in the same context with the same content is a *repeat*: nothing is stored, sent, or kept as raw evidence. Seeing it in another group/page, or with changed content, is a new *sighting*: the record is updated, re-synced with its `sighting_context`, and the server records a further `capture_events` row (the cross-posting evidence entity resolution needs). **Capture targets** in the side panel hold the group/page links you work through; *Open* opens the link in a tab on your click — the extension never navigates on its own (ADR-0004) — and each target shows how many records it has produced.
+
 ## Quick start (development)
 
 Requirements: Node ≥ 20, npm ≥ 10, Chrome or Edge ≥ 116.
