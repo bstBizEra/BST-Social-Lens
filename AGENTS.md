@@ -38,7 +38,8 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 1. **MV3 constraints.** No `webRequestBlocking`, no remote code, listeners registered at top level in `background.ts`, no in-memory state that matters — IndexedDB is the source of truth.
 2. **Interceptor safety.** `interceptor.content.ts` must never throw into the page. Wrap everything; on failure return the original response untouched.
 3. **Platform modules never throw.** `parse()` returns `[]` on unexpected shapes; the raw payload is retained for re-parse. Bump `version` on every output change.
-4. **Privacy by default.** `hashAuthorIds` is on; raw payloads purge after `rawRetentionDays`. Do not add member-profile aggregation (names + contacts + location) — post-level content and engagement only.
+4. **Privacy by default.** `hashAuthorIds` is on; raw payloads purge after `rawRetentionDays`. Do not add member-profile aggregation (names + contacts + location) — post-level content and engagement only. Contact points (SLL-PROP-DATA-001A D5) are hashed/masked and never published.
+   **Evidence rule (SLL-PROP-DATA-001A I1):** never delete L0/L1 evidence because it is a "duplicate" — merge source captures, link listing clusters, resolve entities; only retention policy or a lawful deletion request removes evidence.
 5. **Account safety.** Any future auto-scroll must use jittered 2–5 s pacing, per-run caps, and run only while the side panel is open. No background autonomous browsing in v0.x.
 6. **Store-listing language.** Never use "scraper"/"crawler" in `manifest.name`, `description`, README headline, or store copy.
 7. **Tests before merge.** `npm run check && npm test && npm run build && npm run build:edge` must pass (CI: `.github/workflows/parser-health.yml` on every PR).
@@ -63,7 +64,7 @@ wxt.config.ts                manifest + build config (chrome default, `-b edge`)
 | 0 Governance | `docs/00-governance` | **`STATUS.md`** — auditable status snapshot, updated by PR only (the Claude Project `status/` docs are working context, not truth) |
 | 1 PRD Review | `docs/01-product-requirements` | pending — PRD to be authored from the research brief |
 | 2 Requirement Decomposition | `docs/01-product-requirements` | pending |
-| 3 Architecture Design | `docs/03-architecture` | **done** — `research-brief-base-stack.md`, ADR-0001…0004 (see `docs/03-architecture/README.md`); ADR-0004 fixes the capture-layer policy: extension-first, headless **logged-out only** |
+| 3 Architecture Design | `docs/03-architecture` | **done** for capture (ADR-0001…0004). **In progress** for the market-intelligence data platform: parent `SLL-PROP-DATA-001` (frozen) → child `001A Domain & Data Boundary` (draft for freeze) → 001B–001H |
 | 4 Detailed Solution Design | `docs/03-architecture`, `docs/04-data-api-integration` | **done** — schema v1 in `src/lib/types.ts`; ingest contract + LensDB schema in `services/lens-api` |
 | 5 Security/Compliance Design | `docs/05-security-privacy` | pending — Lao EDPL 2017 mapping, ToS exposure register |
 | 6 Implementation Planning | `docs/07-engineering-devsecops` | pending |
