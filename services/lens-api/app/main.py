@@ -23,7 +23,9 @@ Endpoints
   GET  /geo/stats        gazetteer + precision distribution + 001D §9.5 evidence (bearer auth)
   GET  /geo/resolve?text= dry-run resolver over a text; no write (bearer auth)
   GET  /quality/stats    DQ grade distribution + validation exceptions over current observations (bearer auth) — 001G
-  GET  /housekeeping/status  watermarks · reconciliation · stage health · findings (read-only) — SLL-DATA-HK-001
+  GET  /housekeeping/status  watermarks · reconciliation · stage health · findings — SLL-DATA-HK-001
+  GET  /housekeeping/findings?type=&status=&severity=  persisted findings; POST /admin/housekeeping/run?dry_run=  run now (loop: LENS_HK_INTERVAL_MIN, 30)
+  GET  /lineage/{id}     lineage walk over payload → record → observation → location → decision → property → snapshot → dataset version
   POST /admin/quality/recompute?since=  new stats+DQ snapshot rows per ACTIVE property (flag on) — 001G §7
   --- only with LENS_RESOLUTION_ENABLED=1 (001E/001F draft schema; off in production until 001E freezes) ---
   POST /admin/resolve    run clusters → blocking → MATCH_V1 → decisions now (bearer auth)
@@ -50,6 +52,8 @@ from .db import Database
 from .extract.service import run_extraction
 from .extract.store import ExtractStore, quality_stats
 from .housekeeping import housekeeping_status
+from .housekeeping.lineage import lineage as walk_lineage
+from .housekeeping.store import last_run as hk_last_run, list_findings as hk_list_findings, run_housekeeping
 from .geo.resolver import resolve as geo_resolve
 from .geo.store import GeoStore
 from .resolution.service import run_resolution
@@ -80,6 +84,7 @@ CONTACT_SALT = os.environ.get("LENS_CONTACT_SALT") or hashlib.sha256(f"contact-s
 CONTACT_KEY = os.environ.get("LENS_CONTACT_KEY") or None
 # Phase 7 (001E) — resolution loop; the 001F draft schema is applied only when this flag is on.
 RESOLUTION_ENABLED = resolution_enabled()
+HK_INTERVAL_MIN = int(os.environ.get("LENS_HK_INTERVAL_MIN", "30"))
 RESOLVE_INTERVAL_MIN = int(os.environ.get("LENS_RESOLVE_INTERVAL_MIN", "30"))
 
 log = logging.getLogger("lens-api")
@@ -99,6 +104,25 @@ _resolve_lock = asyncio.Lock()
 async def _resolve_once(trigger: str, force: bool = False) -> dict:
     async with _resolve_lock:
         return await run_resolution(resolution_store, trigger=trigger, force=force)
+
+
+_hk_lock = asyncio.Lock()
+
+
+async def _hk_once(trigger: str, dry_run: bool = False) -> dict:
+    async with _hk_lock:  # single-flight (HK-001 §9)
+        return await run_housekeeping(db, trigger=trigger, dry_run=dry_run, **_hk_config())
+
+
+async def _hk_loop() -> None:
+    await asyncio.sleep(60)  # let the extraction startup run finish first
+    while True:
+        try:
+            res = await _hk_once("scheduled")
+            log.info("housekeeping: run %s health=%s findings=%s", res["run_id"], res["health"], res["findings_open"])
+        except Exception as e:  # never let housekeeping take the API down
+            log.warning("housekeeping run failed: %s", e)
+        await asyncio.sleep(HK_INTERVAL_MIN * 60)
 
 
 async def _resolve_loop() -> None:
@@ -148,14 +172,15 @@ async def lifespan(app: FastAPI):
     task = asyncio.create_task(_purge_loop()) if (RETENTION_DAYS > 0 or RAW_BODY_RETENTION_DAYS > 0) else None
     xtask = asyncio.create_task(_extract_loop()) if EXTRACT_INTERVAL_MIN > 0 else None
     rtask = asyncio.create_task(_resolve_loop()) if (RESOLUTION_ENABLED and RESOLVE_INTERVAL_MIN > 0) else None
+    htask = asyncio.create_task(_hk_loop()) if HK_INTERVAL_MIN > 0 else None
     yield
-    for t in (task, xtask, rtask):
+    for t in (task, xtask, rtask, htask):
         if t:
             t.cancel()
     await db.close()
 
 
-app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.5", lifespan=lifespan)
+app = FastAPI(title="BST Social Lens — Ingest API", version="0.6.6", lifespan=lifespan)
 
 if CORS_ORIGINS:
     app.add_middleware(
@@ -395,8 +420,33 @@ def _hk_config() -> dict:
 
 @app.get("/housekeeping/status", dependencies=[Depends(require_token)])
 async def housekeeping_status_endpoint() -> dict:
-    """SLL-DATA-HK-001 §6–§8 (read-only): per-stage watermarks, reconciliation ratios, stage health, open findings."""
-    return await housekeeping_status(db, **_hk_config())
+    """SLL-DATA-HK-001 §6–§8: per-stage watermarks, reconciliation ratios, stage health, open findings (computed live) + last persisted run."""
+    st = await housekeeping_status(db, **_hk_config())
+    st["last_run"] = await hk_last_run(db)
+    return st
+
+
+@app.get("/housekeeping/findings", dependencies=[Depends(require_token)])
+async def housekeeping_findings(type: str | None = None, status: str | None = None, severity: str | None = None,
+                                limit: int = Query(default=100, ge=1, le=1000)) -> dict:
+    """Persisted findings (HK-001 §8). status defaults to OPEN; status=ALL for history."""
+    rows = await hk_list_findings(db, ftype=type, status=status, severity=severity, limit=limit)
+    return {"findings": rows, "count": len(rows)}
+
+
+@app.post("/admin/housekeeping/run", dependencies=[Depends(require_token)])
+async def admin_housekeeping_run(dry_run: bool = Query(default=False)) -> dict:
+    """Run the Housekeeper now (observe → measure → reconcile → classify → persist). dry_run=1 computes without persisting findings."""
+    return await _hk_once("admin", dry_run)
+
+
+@app.get("/lineage/{ident}", dependencies=[Depends(require_token)])
+async def lineage_endpoint(ident: str) -> dict:
+    """HK-001 §5: walk lineage from a payload hash, record key, obs:<id>/<id>, loc:<id>, dec:<id>, MP-… or snap:<id>. Counts and versions only."""
+    res = await walk_lineage(db, ident)
+    if res is None:
+        raise HTTPException(status_code=404, detail="unknown identifier or shape (64-hex | platform:post_id | obs:n | loc:n | dec:n | MP-… | snap:n)")
+    return res
 
 
 def require_resolution() -> None:

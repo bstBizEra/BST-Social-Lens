@@ -18,7 +18,7 @@ from datetime import datetime, timezone
 from typing import Any, Awaitable, Callable
 
 PROTOCOL_VERSION = "2025-03-26"
-SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.5"}
+SERVER_INFO = {"name": "bst-social-lens", "version": "0.6.6"}
 
 # JSON-RPC error codes
 PARSE_ERROR, INVALID_REQUEST, METHOD_NOT_FOUND, INVALID_PARAMS, INTERNAL = -32700, -32600, -32601, -32602, -32603
@@ -122,6 +122,16 @@ TOOLS: list[dict[str, Any]] = [
         "inputSchema": {"type": "object", "properties": {}},
     },
     {
+        "name": "housekeeping_findings",
+        "description": "SLL-DATA-HK-001 §8: persisted Housekeeper findings (type, severity, count, expected/observed state, recommended action, auto_action_allowed, status). Counts and ids only.",
+        "inputSchema": {"type": "object", "properties": {"type": {"type": "string"}, "status": {"type": "string", "enum": ["OPEN", "ACTIONED", "REVIEW", "RESOLVED", "SUPPRESSED", "ALL"]}, "severity": {"type": "string", "enum": ["INFO", "WARN", "ERROR", "CRITICAL"]}, "limit": {"type": "integer", "minimum": 1, "maximum": MAX_LIMIT, "default": 50}}},
+    },
+    {
+        "name": "lineage",
+        "description": "SLL-DATA-HK-001 §5: lineage of one identifier — payload hash (64-hex), record key (platform:post_id), obs:<id>, loc:<id>, dec:<id>, MP-…, snap:<id> — as nodes with producing job/version/run and edges, upstream and downstream. No record text or contacts.",
+        "inputSchema": {"type": "object", "properties": {"id": {"type": "string"}}, "required": ["id"]},
+    },
+    {
         "name": "housekeeping_status",
         "description": "SLL-DATA-HK-001 (read-only): per-stage watermarks (capture, raw, ingest, extract, geo, resolve, snapshot, publish, retention), reconciliation ratios (R-EVID, R-SIGHT, R-EXTR, R-GEO, R-RES, R-PROP, R-SNAP, R-RET), stage health and open findings with recommended actions.",
         "inputSchema": {"type": "object", "properties": {}},
@@ -192,6 +202,8 @@ class McpDispatcher:
             "resolve_text": self.resolve_text,
             "quality_stats": self.quality_stats,
             "housekeeping_status": self.housekeeping_status,
+            "housekeeping_findings": self.housekeeping_findings,
+            "lineage": self.lineage,
             "search_market_properties": self.search_market_properties,
             "get_market_property": self.get_market_property,
             "resolution_stats": self.resolution_stats,
@@ -266,6 +278,19 @@ class McpDispatcher:
         from .housekeeping import housekeeping_status
 
         return await housekeeping_status(self.db, **m._hk_config())
+
+    async def housekeeping_findings(self, a: dict[str, Any]) -> Any:
+        from .housekeeping.store import list_findings
+
+        return await list_findings(self.db, ftype=a.get("type"), status=a.get("status"), severity=a.get("severity"), limit=_clamp_limit(a, 50))
+
+    async def lineage(self, a: dict[str, Any]) -> Any:
+        from .housekeeping.lineage import lineage
+
+        res = await lineage(self.db, str(a.get("id", "")))
+        if res is None:
+            raise ValueError("unknown identifier")
+        return res
 
     def _res(self) -> Any:
         r = getattr(self.db, "resolution", None)

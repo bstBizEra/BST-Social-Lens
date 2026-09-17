@@ -41,7 +41,8 @@ def env():
         main.db._dsn = DSN
         await main.db.connect()
         async with main.db.pool.acquire() as con:
-            await con.execute("""DELETE FROM market.property_stats_snapshots; DELETE FROM resolution.entity_decisions; DELETE FROM resolution.entity_candidates;
+            await con.execute("""DELETE FROM housekeeping.actions; DELETE FROM housekeeping.findings; DELETE FROM housekeeping.checks; DELETE FROM housekeeping.watermarks; DELETE FROM housekeeping.lifecycle_states; DELETE FROM housekeeping.runs;
+                                 DELETE FROM market.property_stats_snapshots; DELETE FROM resolution.entity_decisions; DELETE FROM resolution.entity_candidates;
                                  DELETE FROM resolution.property_transitions; DELETE FROM market.properties; DELETE FROM resolution.cluster_edges;
                                  DELETE FROM resolution.cluster_members; DELETE FROM resolution.listing_clusters; DELETE FROM resolution.runs;
                                  DELETE FROM audit.events; DELETE FROM geo.resolved_locations; DELETE FROM extract.contact_sightings; DELETE FROM extract.price_observations;
@@ -246,3 +247,55 @@ def test_housekeeping_status_with_resolution(env):
         assert "lifecycle" in hk["watermarks"]["snapshot"] and sum(hk["watermarks"]["snapshot"]["lifecycle"].values()) >= 2
         mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 9, "method": "tools/call", "params": {"name": "housekeeping_status", "arguments": {}}})
         assert mcp.status_code == 200 and "R-EVID" in mcp.text
+
+
+def test_housekeeping_persists_runs_findings_and_lineage_walks(env):
+    """HK-001 §5/§8/§10: a run persists watermarks, checks and findings; a repeat run bumps last_seen; a finding that
+    disappears is RESOLVED (row kept); lineage answers from every identifier shape with versions and counts only."""
+    import asyncpg
+    from fastapi.testclient import TestClient
+
+    main = env
+    h = {"Authorization": "Bearer test-token"}
+    with TestClient(main.app) as client:
+        r1 = client.post("/admin/housekeeping/run", headers=h).json()
+        r2 = client.post("/admin/housekeeping/run", headers=h).json()
+        assert r1["run_id"] < r2["run_id"] and r2["findings_open"] >= 1
+        f = client.get("/housekeeping/findings", headers=h).json()["findings"]
+        ev = next(x for x in f if x["finding_type"] == "RECORD_WITHOUT_EVENT")
+        assert ev["first_seen_run_id"] == r1["run_id"] and ev["last_seen_run_id"] == r2["run_id"] and ev["status"] == "OPEN"
+        st = client.get("/housekeeping/status", headers=h).json()
+        assert st["last_run"]["run_id"] == r2["run_id"] and st["last_run"]["error"] is None
+        dry = client.post("/admin/housekeeping/run?dry_run=1", headers=h).json()
+        assert dry["dry_run"] is True
+        # lineage from a record key, an observation, a property, a decision
+        rec = client.get("/lineage/facebook:m1", headers=h).json()
+        types = {n["type"] for n in rec["nodes"]}
+        assert {"record", "observation", "location", "decision", "market_property", "snapshot"} <= types, types
+        assert not any("text" in n or "raw_value" in n for n in rec["nodes"])
+        obs_id = next(n["id"] for n in rec["nodes"] if n["type"] == "observation" and n.get("current"))
+        mp = next(n["id"] for n in rec["nodes"] if n["type"] == "market_property")
+        assert client.get(f"/lineage/obs:{obs_id}", headers=h).status_code == 200
+        walk = client.get(f"/lineage/{mp}", headers=h).json()
+        assert walk["seed"]["type"] == "market_property" and sum(1 for n in walk["nodes"] if n["type"] == "record") >= 4  # the linked advertisers
+        dec = next(n["id"] for n in rec["nodes"] if n["type"] == "decision")
+        assert client.get(f"/lineage/dec:{dec}", headers=h).json()["seed"]["type"] == "decision"
+        assert client.get("/lineage/not-an-id", headers=h).status_code == 404
+        assert client.get("/lineage/" + "a" * 64, headers=h).json()["nodes"] == []  # unknown hash → empty walk with note, not 404
+        mcp = client.post("/mcp", headers=h, json={"jsonrpc": "2.0", "id": 3, "method": "tools/call", "params": {"name": "lineage", "arguments": {"id": "facebook:m1"}}})
+        assert mcp.status_code == 200 and "market_property" in mcp.text
+
+    async def backfill_and_rerun():
+        con = await asyncpg.connect(DSN)
+        try:
+            # make the RECORD_WITHOUT_EVENT finding disappear: backfill capture events for the fixture rows
+            await con.execute("INSERT INTO capture_events (record_key, captured_at, context) SELECT key, captured_at, 'container:test' FROM records WHERE key LIKE 'facebook:m%' ON CONFLICT DO NOTHING")
+        finally:
+            await con.close()
+
+    asyncio.run(backfill_and_rerun())
+    with TestClient(main.app) as client:
+        client.post("/admin/housekeeping/run", headers=h)
+        hist = client.get("/housekeeping/findings?status=ALL&type=RECORD_WITHOUT_EVENT", headers=h).json()["findings"]
+        assert hist and hist[0]["status"] == "RESOLVED" and hist[0]["resolved_run_id"] is not None
+        assert client.get("/housekeeping/findings?type=RECORD_WITHOUT_EVENT", headers=h).json()["count"] == 0
