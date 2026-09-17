@@ -32,6 +32,20 @@ All notable changes to BST Social Lens are documented here. Format loosely follo
 - **lens-api — retention purge**: `LENS_RETENTION_DAYS` (default 730, 0 = off) deletes records older than N days by post date (else capture date) plus orphaned frontier rows; runs at startup + daily; `POST /admin/purge?days=N` runs it on demand.
 - **lens-api 0.4.0 — MCP adapter** (`POST /mcp`, ADR-0004 Phase 4 item): Model Context Protocol over Streamable HTTP with read-only tools `search_records`, `get_record`, `get_stats`, `top_containers`, `list_seen`; bearer-token gated; dependency-free JSON-RPC dispatcher (`app/mcp.py`); 5 pytest + live smoke script (`mcp-smoke.sh`). Lets BST agents query Social Lens through MCP Hub / Claude Code.
 
+## [0.6.0] — 2026-09-16
+
+### Added
+- **Assisted navigation (Layer B, ADR-0004)** — optional "Expand comment threads" switch on the Autonomous card. During an auto-scroll run the extension clicks in-page expanders — "View more comments", "View N replies", "See more" and their Lao/Thai variants — with jittered 1.5–3.5s pacing, capped per run (default 30) and per scroll round (default 3). The interceptor captures what the expansion fetches; no new capture path.
+- `src/lib/assist.ts`: pure, unit-tested allow-list (`classifyLabel`), navigation guard (`isSamePage`), picker (`pickExpanders`) and pacing. Deny-list blocks Join / Like / Share / Reply / Follow / See all / View post and Lao/Thai equivalents.
+- Run stops with reason `navigated` if the page URL changes (SPA pushState included); each element is clicked at most once per run (`ClickLedger`, reset on every Start); only elements on or just below the viewport are considered. `javascript:`/`data:` hrefs are never treated as in-page; a candidate must pass **both** control-semantics and label checks (no hint-only path).
+- Side panel shows "threads expanded" alongside the scroll count.
+- **Sync now** with nothing to push now verifies the ingest URL + token against `GET /stats` and reports "Connected — nothing to push (server holds N records)" or the HTTP error (401 = token rejected). Previously it returned "Pushed 0 records" without contacting the server.
+- Default keyword set extended (OP-Vily, 2026-09-17): + ເນື້ອທີ່, location, google map, lat, long. Applies to fresh installs; existing installs edit *Include terms* in the panel.
+
+### Changed
+- Extension → 0.6.0 (package.json, wxt manifest, package-lock). `Settings.assist` (default off) and `AutoProgress.clicks` added; `autoStart` relays both `autoRun` and `assist` config.
+- ADR-0004 records the capture-layer policy (extension-first; headless worker logged-out only).
+
 ## [0.5.0] — 2026-09-16
 
 ### Added
