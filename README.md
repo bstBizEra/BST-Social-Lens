@@ -60,7 +60,7 @@ Use a secondary account, keep runs small, and respect the Terms of Service of ea
 
 ## Documentation
 
-See [`AGENTS.md`](./AGENTS.md) for the engineering rules and SDLC gate map, and `docs/` for gate artefacts. The base-stack research brief is in `docs/03-architecture/`.
+See [`AGENTS.md`](./AGENTS.md) for the engineering rules and SDLC gate map, and `docs/` for gate artefacts. Architecture decisions are in `docs/03-architecture/` (ADR-0001…0005); the roadmap is `docs/01-product-requirements/ROADMAP.md`; the auditable status snapshot is `docs/00-governance/STATUS.md`.
 
 ## License
 
