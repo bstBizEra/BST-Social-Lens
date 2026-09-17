@@ -191,6 +191,7 @@ export type RuntimeMessage =
   | { type: 'exportRaw'; platform?: Platform; limit?: number }
   | { type: 'clear'; what: 'records' | 'raw' | 'seen' | 'all' }
   | { type: 'sync' }
+  | { type: 'hostPermission'; request: boolean }
   | { type: 'getSettings' }
   | { type: 'setSettings'; settings: Partial<Settings> }
   /** Is this normalized URL already in the frontier? */
