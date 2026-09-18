@@ -6,7 +6,7 @@
   let settings = $state<Settings | undefined>(undefined);
   let message = $state('');
   let busy = $state(false);
-  let auto = $state<{ running: boolean; scrolls: number; clicks: number; reason: string | null }>({ running: false, scrolls: 0, clicks: 0, reason: null });
+  let auto = $state<{ running: boolean; scrolls: number; clicks: number; dialogsClosed?: number; reason: string | null }>({ running: false, scrolls: 0, clicks: 0, reason: null });
 
   const autoReason: Record<string, string> = {
     maxScrolls: 'reached scroll cap',
@@ -18,7 +18,7 @@
   };
 
   async function refreshAuto() {
-    auto = await send<{ running: boolean; scrolls: number; clicks: number; reason: string | null }>({ type: 'autoState' });
+    auto = await send<{ running: boolean; scrolls: number; clicks: number; dialogsClosed?: number; reason: string | null }>({ type: 'autoState' });
   }
   const startAuto = () => run('Start', () => send<{ ok: boolean; running: boolean }>({ type: 'autoStart' }), (r) => (r.running ? 'Auto-scroll started' : 'Open a Facebook or TikTok tab first'));
   const stopAuto = () => run('Stop', () => send<{ ok: boolean }>({ type: 'autoStop' }), () => 'Auto-scroll stopped');
@@ -174,7 +174,7 @@
   <h2>Autonomous mode</h2>
   <div class="muted">
     {#if auto.running}
-      <span class="dot"></span> Running — {auto.scrolls} scrolls{#if settings?.assist.enabled} · {auto.clicks} threads expanded{/if}. Keep this tab and panel open.
+      <span class="dot"></span> Running — {auto.scrolls} scrolls{#if settings?.assist.enabled} · {auto.clicks} threads expanded{#if auto.dialogsClosed} · {auto.dialogsClosed} popups closed{/if}{/if}. Keep this tab and panel open.
     {:else}
       Manual by default (scroll to capture). Start auto-scroll on the current Facebook/TikTok tab.
       {#if auto.reason && autoReason[auto.reason]}· last run: {autoReason[auto.reason]}{/if}

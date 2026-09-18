@@ -21,6 +21,13 @@ export interface AssistConfig {
   maxDelayMs: number;
   /** Also click "See more" text expanders (full post text). */
   expandText: boolean;
+  /**
+   * 0.7.5: a click on a feed expander often opens the post as a modal dialog. Leave it open for `dialogDwellMs`
+   * (so the comments fetch completes and is intercepted), then dismiss it via its Close control or Escape.
+   * Dialogs that were already open when the round started (the operator's own) are never touched.
+   */
+  closeDialogs: boolean;
+  dialogDwellMs: number;
 }
 
 export const DEFAULT_ASSIST: AssistConfig = {
@@ -30,6 +37,8 @@ export const DEFAULT_ASSIST: AssistConfig = {
   minDelayMs: 1500,
   maxDelayMs: 3500,
   expandText: true,
+  closeDialogs: true,
+  dialogDwellMs: 2500,
 };
 
 /** A clickable element as seen by the content script (DOM-free projection). */
@@ -76,6 +85,29 @@ const DENY = [
 ];
 
 const norm = (s: string) => s.normalize('NFC').toLowerCase().replace(/\s+/g, ' ').trim();
+
+/** Labels of a dialog's own dismiss control (aria-label or text). Never matches destructive verbs. */
+const CLOSE_LABELS = ['close', 'dismiss', 'ປິດ', 'ปิด'];
+
+/** True when a control's label/aria-label is a dialog close button (0.7.5). */
+export function isCloseControl(text: string | undefined, ariaLabel: string | undefined): boolean {
+  const t = norm(`${ariaLabel ?? ''} ${text ?? ''}`);
+  if (!t || t.length > 40) return false;
+  // a close control is exactly a close word (optionally "close dialog"/"close post"); any other verb disqualifies it
+  const words = t.split(' ');
+  if (!CLOSE_LABELS.includes(words[0]!)) return false;
+  if (words.length > 1 && !['dialog', 'post', 'modal', 'window'].includes(words.slice(1).join(' '))) return false;
+  return !DENY.some((d) => t.includes(d));
+}
+
+/**
+ * Which dialogs did OUR click open? Everything present before the click belongs to the operator and stays.
+ * Pure over identity lists so it is testable without a DOM.
+ */
+export function newDialogs<T>(before: readonly T[], after: readonly T[]): T[] {
+  const seen = new Set(before);
+  return after.filter((d) => !seen.has(d));
+}
 
 /** Classify a label. Returns null when it is not an allowed expander. */
 export function classifyLabel(text: string, cfg: AssistConfig = DEFAULT_ASSIST): ExpanderKind | null {

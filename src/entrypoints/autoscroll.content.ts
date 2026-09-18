@@ -13,9 +13,9 @@
  * current page or runs script is skipped, and a URL change during the run stops it.
  */
 import { DEFAULT_AUTORUN, nextDelay, shouldStop, type AutoRunConfig, type AutoRunState } from '../lib/autorun';
-import { ClickLedger, DEFAULT_ASSIST, assistExhausted, nextClickDelay, pickExpanders, type AssistConfig, type Candidate } from '../lib/assist';
+import { ClickLedger, DEFAULT_ASSIST, assistExhausted, isCloseControl, newDialogs, nextClickDelay, pickExpanders, type AssistConfig, type Candidate } from '../lib/assist';
 
-type Progress = { running: boolean; scrolls: number; clicks: number; reason: string | null };
+type Progress = { running: boolean; scrolls: number; clicks: number; dialogsClosed: number; reason: string | null };
 
 const CANDIDATE_SELECTOR = [
   'div[role="button"]',
@@ -36,12 +36,13 @@ export default defineContentScript({
     let cfg: AutoRunConfig = DEFAULT_AUTORUN;
     let assist: AssistConfig = DEFAULT_ASSIST;
     let clicks = 0;
+    let dialogsClosed = 0;
     let startHref = '';
     // Elements already clicked THIS run — reset by start(); never click the same expander twice per run.
     const clicked = new ClickLedger<Element>();
 
     const report = (reason: string | null) => {
-      const p: Progress = { running, scrolls: state?.scrolls ?? 0, clicks, reason };
+      const p: Progress = { running, scrolls: state?.scrolls ?? 0, clicks, dialogsClosed, reason };
       browser.runtime.sendMessage({ type: 'autoProgress', progress: p }).catch(() => {});
     };
 
@@ -70,6 +71,7 @@ export default defineContentScript({
       const cands: Candidate[] = [];
       for (const el of document.querySelectorAll(CANDIDATE_SELECTOR)) {
         if (!clicked.canClick(el) || !isVisible(el)) continue;
+        if (el.closest('[role="dialog"]')) continue; // inside an open modal (the operator's, or one we are about to close)
         const text = (el.textContent ?? '').trim();
         if (!text || text.length > 80) continue;
         const anchor = el.closest('a[href]') as HTMLAnchorElement | null;
@@ -85,6 +87,29 @@ export default defineContentScript({
       return { els, cands };
     }
 
+    const openDialogs = (): Element[] => Array.from(document.querySelectorAll('[role="dialog"]'));
+
+    /** 0.7.5: dismiss a dialog our click opened — its Close control first, Escape as fallback. Returns true if it went away. */
+    function dismissDialog(dialog: Element): boolean {
+      try {
+        const controls = dialog.querySelectorAll('[aria-label], button, [role="button"]');
+        for (const c of controls) {
+          if (isCloseControl((c.textContent ?? '').trim(), c.getAttribute('aria-label') ?? undefined)) {
+            (c as HTMLElement).click();
+            if (!dialog.isConnected) return true;
+            break;
+          }
+        }
+        if (dialog.isConnected) {
+          document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+          document.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', code: 'Escape', keyCode: 27, bubbles: true }));
+        }
+      } catch {
+        /* never let a dismiss error escape into the page */
+      }
+      return !dialog.isConnected;
+    }
+
     /** Click the picked expanders one at a time with jitter, then call `done`. */
     function expandRound(done: () => void) {
       if (!running || !assist.enabled || assistExhausted(assist, clicks) || navigated()) return done();
@@ -96,16 +121,35 @@ export default defineContentScript({
         if (!running || i >= picks.length || navigated()) return done();
         const el = els[picks[i]!.index]!;
         i++;
+        let opened: Element[] = [];
         try {
           if (el.isConnected && isVisible(el) && clicked.mark(el)) {
+            const before = openDialogs();
             (el as HTMLElement).click();
             clicks++;
             report(null);
+            if (assist.closeDialogs) {
+              // the dialog mounts asynchronously; look for it after a short beat
+              setTimeout(() => {
+                opened = newDialogs(before, openDialogs());
+                if (opened.length) {
+                  timer = setTimeout(() => {
+                    for (const d of opened) if (d.isConnected && dismissDialog(d)) dialogsClosed++;
+                    // verify once more after the animation; a stubborn dialog gets a second Escape
+                    setTimeout(() => {
+                      for (const d of opened) if (d.isConnected && dismissDialog(d)) dialogsClosed++;
+                      report(null);
+                    }, 400);
+                  }, assist.dialogDwellMs);
+                }
+              }, 300);
+            }
           }
         } catch {
           /* never let a click error escape into the page */
         }
-        timer = setTimeout(next, nextClickDelay(assist));
+        // wait out the dwell + dismissal before the next click so dialogs never stack
+        timer = setTimeout(next, nextClickDelay(assist) + (assist.closeDialogs ? assist.dialogDwellMs + 900 : 0));
       };
       next();
     }
@@ -140,6 +184,7 @@ export default defineContentScript({
     }
 
     function start(config?: Partial<AutoRunConfig>, assistCfg?: Partial<AssistConfig>) {
+      dialogsClosed = 0;
       if (running) return;
       cfg = { ...DEFAULT_AUTORUN, ...(config ?? {}) };
       assist = { ...DEFAULT_ASSIST, ...(assistCfg ?? {}) };

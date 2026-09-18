@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { ClickLedger, DEFAULT_ASSIST, assistExhausted, classifyLabel, isSamePage, nextClickDelay, pickExpanders, type Candidate } from '../src/lib/assist';
+import { ClickLedger, DEFAULT_ASSIST, assistExhausted, classifyLabel, isCloseControl, isSamePage, newDialogs, nextClickDelay, pickExpanders, type Candidate } from '../src/lib/assist';
 
 const PAGE = 'https://www.facebook.com/groups/123456/';
 
@@ -108,5 +108,22 @@ describe('ClickLedger — once per run, eligible again on a new run', () => {
     expect(ledger.runCount).toBe(2);
     expect(ledger.canClick(el)).toBe(true); // run 2 → eligible again
     expect(ledger.mark(el)).toBe(true);
+  });
+});
+
+describe('dialog handling (0.7.5): close what our click opened, never the operator\'s', () => {
+  it('recognises close controls by aria-label or text in en/lo/th and refuses destructive verbs', () => {
+    expect(isCloseControl(undefined, 'Close')).toBe(true);
+    expect(isCloseControl('', 'ປິດ')).toBe(true);
+    expect(isCloseControl('ปิด', undefined)).toBe(true);
+    expect(isCloseControl('Close and delete', undefined)).toBe(false);
+    expect(isCloseControl('Post', undefined)).toBe(false);
+    expect(isCloseControl('Leave group', 'Close')).toBe(false);
+  });
+  it('newDialogs returns only dialogs absent before the click', () => {
+    const a = { id: 'operator' }; const b = { id: 'ours' };
+    expect(newDialogs([a], [a, b])).toEqual([b]);
+    expect(newDialogs([a], [a])).toEqual([]);
+    expect(newDialogs([], [b])).toEqual([b]);
   });
 });

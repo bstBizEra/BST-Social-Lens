@@ -227,6 +227,8 @@ export interface AutoProgress {
   scrolls: number;
   /** Assisted-navigation expander clicks this run (Layer B). */
   clicks: number;
+  /** Post dialogs our clicks opened and we dismissed this run (0.7.5). */
+  dialogsClosed?: number;
   reason: string | null;
 }
 
