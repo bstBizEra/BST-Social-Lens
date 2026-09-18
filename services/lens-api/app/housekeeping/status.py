@@ -174,6 +174,7 @@ async def housekeeping_status(db: Any, *, rules_version: str, raw_retention_days
     # ---- stage health roll-up
     health = {
         "capture": classify_health(recon["R-SIGHT"]["ratio"]),
+        "ingest": classify_health(recon["R-SIGHT"]["ratio"]),
         "raw": classify_health(recon["R-EVID"]["ratio"]),
         "extract": classify_health(recon["R-EXTR"]["ratio"]),
         "geo": classify_health(recon["R-GEO"]["ratio"]),

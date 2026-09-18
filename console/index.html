@@ -102,6 +102,31 @@ input, select { font: 14px var(--ui); padding: 9px 11px; border-radius: 9px; bor
 .kpi span { color: var(--muted); font-size: 12px; font-weight: 600; }
 .kpi.accent b { color: var(--matched); }
 .kpi.comment b { color: var(--comment); }
+/* Data Control Center (SLL-DATA-HK-001) */
+.tabs { display: flex; gap: 6px; margin: 4px 0 10px; }
+.tabs button { border-radius: 999px; padding: 7px 14px; }
+.tabs button.on { background: var(--surface); border-color: var(--accent); color: var(--accent); font-weight: 700; }
+.stages { display: grid; grid-template-columns: repeat(9, 1fr); gap: 8px; }
+@media (max-width: 1100px) { .stages { grid-template-columns: repeat(3, 1fr); } }
+.stage { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 10px 12px; box-shadow: var(--shadow); }
+.stage .name { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--muted); }
+.stage .h { display: flex; align-items: center; gap: 6px; font-weight: 800; margin-top: 4px; }
+.stage .h i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; background: var(--muted); }
+.h.healthy i { background: var(--matched); } .h.degraded i { background: var(--seen); } .h.failing i { background: var(--danger); } .h.disabled i, .h.unknown i { background: var(--border); }
+.stage small { display: block; color: var(--muted); font-size: 11.5px; margin-top: 4px; font-variant-numeric: tabular-nums; }
+.recon { display: grid; gap: 8px; }
+.recon .r { display: grid; grid-template-columns: 64px 1fr 120px; align-items: center; gap: 10px; font-size: 13px; }
+.recon .r code { font-size: 12px; }
+.recon .track { height: 8px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.recon .fill { height: 100%; background: var(--matched); }
+.recon .fill.degraded { background: var(--seen); } .recon .fill.failing { background: var(--danger); }
+.recon .n { text-align: right; color: var(--muted); font-variant-numeric: tabular-nums; }
+.findings table td.sev { font-weight: 800; }
+.sev.CRITICAL, .sev.ERROR { color: var(--danger); } .sev.WARN { color: var(--seen); } .sev.INFO { color: var(--muted); }
+.tag { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; font-weight: 700; background: var(--surface-2); color: var(--muted); }
+.tag.auto { background: color-mix(in srgb, var(--matched) 15%, transparent); color: var(--matched); }
+.lifecycle { display: flex; gap: 8px; flex-wrap: wrap; }
+.lifecycle .tag { font-size: 12px; }
 .kpi.seen b { color: var(--seen); }
 
 .grid2 { display: grid; grid-template-columns: 280px 1fr; gap: 16px; align-items: start; }
@@ -171,6 +196,12 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-block
     <div id="banner" class="banner" hidden></div>
   </section>
 
+  <div class="tabs" role="tablist">
+    <button class="ghost on" data-tab="leads" role="tab">Leads</button>
+    <button class="ghost" data-tab="control" role="tab">Data Control Center</button>
+  </div>
+
+  <section id="tab-leads">
   <section class="kpis" id="kpis"></section>
 
   <div class="grid2">
@@ -229,6 +260,36 @@ footer { color: var(--muted); font-size: 12px; text-align: center; padding-block
   </div>
 
   <footer>Social Lens Console · reads the BST ingest API · post &amp; comment content only, author IDs hashed</footer>
+  </section>
+
+  <section id="tab-control" hidden>
+    <div class="toolbar" style="margin-bottom:12px; display:flex; align-items:center; gap:10px;">
+      <strong>Data Control Center</strong>
+      <span class="muted" id="hkMeta">SLL-DATA-HK-001 · not loaded</span>
+      <div class="spacer" style="flex:1"></div>
+      <button id="hkRunBtn" class="ghost">Run housekeeper now</button>
+      <button id="hkRefreshBtn" class="ghost">Refresh</button>
+    </div>
+    <div class="stages" id="hkStages"></div>
+    <div class="grid2" style="margin-top:16px;">
+      <div class="panel">
+        <h2>Reconciliation</h2>
+        <div class="recon" id="hkRecon"></div>
+        <div class="lifecycle" id="hkLifecycle" style="margin-top:12px;"></div>
+      </div>
+      <div class="panel findings" style="padding:0; overflow:hidden;">
+        <div class="toolbar" style="padding:12px 14px;"><strong>Findings</strong> <span class="muted"><span id="hkFindingCount" class="count">0</span> open</span></div>
+        <div class="tablewrap">
+          <table>
+            <thead><tr><th>Severity</th><th>Finding</th><th>Count</th><th>Observed</th><th>Recommended action</th><th></th></tr></thead>
+            <tbody id="hkFindings"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+    <p class="muted" style="margin-top:10px; font-size:12px;">Counts only — no record text or contacts. Health: healthy ≥ 0.99 · degraded ≥ 0.9 · failing. Auto-allowed findings are actioned by the Housekeeper within its safe list; everything else needs a human (001G review).</p>
+  </section>
+
 </div>
 
 <script>
@@ -424,6 +485,62 @@ $("themeBtn").addEventListener("click", () => {
   store.set("theme", next);
 });
 
+
+/* ---------- Data Control Center (SLL-DATA-HK-001) ---------- */
+const STAGES = ["capture","raw","ingest","extract","geo","resolve","snapshot","publish","retention"];
+const RECON_LABEL = { "R-EVID": "records ↔ raw", "R-SIGHT": "records ↔ events", "R-EXTR": "content ↔ extraction", "R-GEO": "claims ↔ location", "R-RES": "observation ↔ decision", "R-PROP": "property ↔ observations", "R-SNAP": "property ↔ snapshot", "R-PUB": "member ↔ eligible", "R-RET": "past retention" };
+function fmtAgo(iso) { if (!iso) return "—"; const s = Math.max(0, (Date.now() - new Date(iso).getTime()) / 1000); return s < 90 ? Math.round(s) + "s ago" : s < 5400 ? Math.round(s / 60) + "m ago" : s < 172800 ? Math.round(s / 3600) + "h ago" : Math.round(s / 86400) + "d ago"; }
+function healthClass(h) { return ["healthy","degraded","failing","disabled","unknown"].includes(h) ? h : "unknown"; }
+function renderControl(st, findings) {
+  $("hkMeta").textContent = "SLL-DATA-HK-001 v" + st.hk_version + " · computed " + fmtAgo(st.computed_at) + (st.last_run ? " · last run #" + st.last_run.run_id + " (" + st.last_run.trigger + ", " + (st.last_run.actions_taken || 0) + " actions)" : " · no persisted run yet");
+  const wm = st.watermarks || {}, h = st.health || {};
+  $("hkStages").innerHTML = STAGES.map((sname) => {
+    const w = wm[sname] || {}; const hh = w.enabled === false ? "disabled" : (h[sname] || "unknown");
+    const lines = [];
+    if (w.records_in != null) lines.push(w.records_in.toLocaleString() + " in");
+    if (w.records_pending) lines.push(w.records_pending.toLocaleString() + " pending");
+    if (w.lag_seconds) lines.push("lag " + Math.round(w.lag_seconds / 60) + "m");
+    if (w.method_version) lines.push("v" + w.method_version + (w.behind_version ? " (" + w.behind_version + " behind)" : ""));
+    if (w.located_share != null) lines.push("located " + Math.round(w.located_share * 100) + "%");
+    if (w.payloads_missing) lines.push(w.payloads_missing + " bodies missing");
+    if (w.last_success_at) lines.push("ok " + fmtAgo(w.last_success_at));
+    if (w.enabled === false) lines.push("flag off");
+    return '<div class="stage"><div class="name">' + sname + '</div><div class="h ' + healthClass(hh) + '"><i></i>' + hh + '</div><small>' + (lines.join(" · ") || "—") + '</small></div>';
+  }).join("");
+  const rc = st.reconciliation || {};
+  $("hkRecon").innerHTML = Object.keys(rc).map((code) => {
+    const r = rc[code]; const ratio = r.ratio; const cls = ratio == null ? "" : ratio >= 0.99 ? "" : ratio >= 0.9 ? " degraded" : " failing";
+    return '<div class="r"><code>' + code + '</code><div><div class="muted" style="font-size:11px">' + (RECON_LABEL[code] || "") + '</div><div class="track"><div class="fill' + cls + '" style="width:' + (ratio == null ? 0 : Math.round(ratio * 100)) + '%"></div></div></div><div class="n">' + (ratio == null ? (r.note ? "n/a" : "—") : (r.observed ?? "") + "/" + (r.expected ?? "") + " · " + Math.round(ratio * 1000) / 10 + "%") + '</div></div>';
+  }).join("");
+  const life = (wm.snapshot && wm.snapshot.lifecycle) || null;
+  $("hkLifecycle").innerHTML = life ? '<span class="muted" style="font-size:12px">Property lifecycle:</span>' + Object.keys(life).map((k) => '<span class="tag">' + k + ' ' + life[k] + '</span>').join("") : "";
+  const rows = findings || st.findings || [];
+  $("hkFindingCount").textContent = rows.length;
+  $("hkFindings").innerHTML = rows.length ? rows.map((f) => '<tr><td class="sev ' + f.severity + '">' + f.severity + '</td><td><code>' + f.finding_type + '</code>' + (f.status && f.status !== "OPEN" ? ' <span class="tag">' + f.status + '</span>' : '') + '</td><td>' + (f.count ?? "").toLocaleString() + '</td><td class="muted">' + esc(f.observed_state || "") + '</td><td>' + esc(f.recommended_action || "") + '</td><td>' + (f.auto_action_allowed ? '<span class="tag auto">auto</span>' : '<span class="tag">human</span>') + '</td></tr>').join("") : '<tr><td colspan="6" class="muted">No open findings — every reconciliation check holds.</td></tr>';
+}
+async function loadControl(run) {
+  const base = ($("apiBase").value.trim() || location.origin), token = $("token").value.trim();
+  $("hkMeta").textContent = run ? "Running housekeeper…" : "Loading…";
+  try {
+    if (run) { const r = await fetch(base.replace(/\/$/, "") + "/admin/housekeeping/run", { method: "POST", headers: token ? { authorization: "Bearer " + token } : {} }); if (!r.ok) throw new Error("HTTP " + r.status); }
+    const [st, fl] = await Promise.all([api(base, "/housekeeping/status", token), api(base, "/housekeeping/findings?status=ALL&limit=200", token)]);
+    const open = (fl.findings || []).filter((f) => f.status === "OPEN" || f.status === "ACTIONED" || f.status === "REVIEW");
+    renderControl(st, open.length ? open : null);
+  } catch (e) {
+    $("hkMeta").textContent = "Couldn't load housekeeping status (" + e.message + "). Connect to lens-api 0.6.5+ with a valid token.";
+    $("hkStages").innerHTML = ""; $("hkRecon").innerHTML = ""; $("hkFindings").innerHTML = ""; $("hkLifecycle").innerHTML = "";
+  }
+}
+function showTab(name) {
+  document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("on", b.dataset.tab === name));
+  $("tab-leads").hidden = name !== "leads"; $("tab-control").hidden = name !== "control";
+  store.set("tab", name);
+  if (name === "control") loadControl(false);
+}
+document.querySelectorAll(".tabs button").forEach((b) => b.addEventListener("click", () => showTab(b.dataset.tab)));
+$("hkRefreshBtn").addEventListener("click", () => loadControl(false));
+$("hkRunBtn").addEventListener("click", () => loadControl(true));
+
 /* boot */
 (function boot() {
   const t = store.get("theme", ""); if (t) document.documentElement.setAttribute("data-theme", t);
@@ -431,6 +548,7 @@ $("themeBtn").addEventListener("click", () => {
   const tok = store.get("token", ""); if (tok) $("token").value = tok;
   // Auto-connect when served from the same origin as the API; else show demo so the page is never empty.
   if (location.protocol.startsWith("http")) connect(); else loadDemo();
+  const tab = store.get("tab", "leads"); if (tab === "control") showTab("control");
 })();
 </script>
 </body>
