@@ -6,9 +6,11 @@
  */
 
 import { DEFAULT_AUTORUN, type AutoRunConfig } from './autorun';
+import { DEFAULT_ASSIST, type AssistConfig } from './assist';
 import { DEFAULT_KEYWORD_SET, type KeywordSet } from './keywords';
 export type { KeywordSet } from './keywords';
 export type { AutoRunConfig } from './autorun';
+export type { AssistConfig } from './assist';
 
 export type Platform = 'facebook' | 'tiktok';
 
@@ -154,6 +156,8 @@ export interface Settings {
   sendRaw: boolean;
   /** Capture targets: group/page links the operator works through (opened by click, never navigated to automatically). */
   captureTargets: CaptureTarget[];
+  /** Assisted navigation (Layer B): in-page comment/reply expansion during autonomous runs. */
+  assist: AssistConfig;
 }
 
 export const DEFAULT_SETTINGS: Settings = {
@@ -171,6 +175,7 @@ export const DEFAULT_SETTINGS: Settings = {
   autoRun: DEFAULT_AUTORUN,
   sendRaw: true,
   captureTargets: [],
+  assist: DEFAULT_ASSIST,
 };
 
 /* ---------- Messages: page (MAIN world) → bridge (isolated) → background ---------- */
@@ -220,6 +225,10 @@ export type RuntimeMessage =
 export interface AutoProgress {
   running: boolean;
   scrolls: number;
+  /** Assisted-navigation expander clicks this run (Layer B). */
+  clicks: number;
+  /** Post dialogs our clicks opened and we dismissed this run (0.7.5). */
+  dialogsClosed?: number;
   reason: string | null;
 }
 
